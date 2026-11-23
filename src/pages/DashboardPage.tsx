@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Activity,
   Building2,
   CalendarClock,
+  Eye,
   Film,
   Image as ImageIcon,
   ListVideo,
   Megaphone,
   Monitor,
   MonitorOff,
+  Play,
   Plus,
   Send,
   Upload,
@@ -18,17 +20,23 @@ import {
 import {
   ActivityEvent,
   Campaign,
+  MediaAsset,
   PageRoute,
+  Playlist,
   ScreenDevice,
 } from '../types/signage';
 import { CAMPAIGN_PERFORMANCE_SERIES } from '../data/mockSignageData';
 import { StatCard } from '../components/ui/StatCard';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { CampaignPerformanceChart, HorizontalBarChart } from '../components/ui/Charts';
+import { Modal } from '../components/ui/Modal';
+import { MediaThumbnail } from '../components/ui/MediaThumbnail';
 
 interface DashboardPageProps {
   screens: ScreenDevice[];
   campaigns: Campaign[];
+  playlists: Playlist[];
+  mediaAssets: MediaAsset[];
   totalMediaCount: number;
   activities: ActivityEvent[];
   onNavigate: (route: PageRoute) => void;
@@ -38,11 +46,14 @@ interface DashboardPageProps {
 export const DashboardPage: React.FC<DashboardPageProps> = ({
   screens,
   campaigns,
+  playlists,
+  mediaAssets,
   totalMediaCount,
   activities,
   onNavigate,
   onQuickAction,
 }) => {
+  const [previewCampaign, setPreviewCampaign] = useState<Campaign | null>(null);
   const totalScreens = screens.length;
   const onlineScreens = screens.filter((s) => s.connectionStatus === 'Online').length;
   const offlineScreens = screens.filter((s) => s.connectionStatus === 'Offline').length;
@@ -73,6 +84,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   const offlineList = screens.filter((s) => s.connectionStatus === 'Offline');
   const recentCampaigns = campaigns.slice(0, 5);
+
+  const getCampaignScreens = (cmp: Campaign): ScreenDevice[] =>
+    cmp.targetScreenIds
+      .map((id) => screens.find((s) => s.id === id))
+      .filter((s): s is ScreenDevice => Boolean(s));
+
+  const getCampaignSlides = (cmp: Campaign): MediaAsset[] => {
+    const pl = playlists.find((p) => p.id === cmp.playlistId);
+    if (!pl) return [];
+    return pl.items
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((item) => mediaAssets.find((m) => m.id === item.mediaId))
+      .filter((m): m is MediaAsset => Boolean(m));
+  };
 
   const getActivityIcon = (type: ActivityEvent['actionType']) => {
     switch (type) {
@@ -329,26 +355,105 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1ECF6] text-[14px]">
-                {recentCampaigns.map((cmp) => (
-                  <tr
-                    key={cmp.id}
-                    onClick={() => onNavigate('campaigns')}
-                    className="hover:bg-[#FAF8FC] cursor-pointer transition-colors"
-                  >
-                    <td className="py-3.5 px-6 font-semibold text-[#290044]">
-                      {cmp.name}
-                    </td>
-                    <td className="py-3.5 px-4 text-[#645573] font-mono text-[13px] tabular-nums whitespace-nowrap">
-                      {cmp.targetScreenIds.length} displays
-                    </td>
-                    <td className="py-3.5 px-4 text-[#645573] font-mono text-[13px] tabular-nums whitespace-nowrap">
-                      {cmp.startDate} → {cmp.endDate}
-                    </td>
-                    <td className="py-3.5 px-6 text-right">
-                      <StatusBadge status={cmp.status} />
-                    </td>
-                  </tr>
-                ))}
+                {recentCampaigns.map((cmp) => {
+                  const targetScreens = getCampaignScreens(cmp);
+                  const slides = getCampaignSlides(cmp);
+                  const visibleScreens = targetScreens.slice(0, 3);
+                  const extraScreens = Math.max(0, targetScreens.length - visibleScreens.length);
+                  const leadOnline = targetScreens.filter(
+                    (s) => s.connectionStatus === 'Online'
+                  ).length;
+
+                  return (
+                    <tr
+                      key={cmp.id}
+                      onClick={() => onNavigate('campaigns')}
+                      className="hover:bg-[#FAF8FC] cursor-pointer transition-colors"
+                    >
+                      <td className="py-3.5 px-6 font-semibold text-[#290044]">
+                        {cmp.name}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewCampaign(cmp);
+                          }}
+                          title="Preview assigned displays and active media"
+                          className="group/preview text-left rounded-lg p-1.5 -m-1.5 hover:bg-[#EEE3B0]/35 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8A2A78]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            {visibleScreens.map((scr, idx) => {
+                              const slide =
+                                slides[idx % Math.max(1, slides.length)] ||
+                                mediaAssets.find((m) => m.id === scr.currentMediaId);
+                              return (
+                                <div
+                                  key={scr.id}
+                                  title={`${scr.id} · ${scr.name} (${scr.building} · ${scr.connectionStatus})`}
+                                  className="relative w-11 h-7 rounded-[5px] border-2 border-[#290044] bg-[#290044] overflow-hidden shrink-0 shadow-[0_1px_2px_rgba(41,0,68,0.12)]"
+                                >
+                                  {slide ? (
+                                    <MediaThumbnail
+                                      src={slide.thumbnailUrl}
+                                      alt={`${scr.name} — ${slide.title}`}
+                                      type={slide.type}
+                                      durationSeconds={slide.durationSeconds}
+                                      accentTone={slide.accentTone}
+                                      className="w-full h-full !rounded-none !border-0"
+                                      showDuration={false}
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-white/70">
+                                      <Monitor className="w-3 h-3" />
+                                    </div>
+                                  )}
+                                  <span
+                                    aria-hidden="true"
+                                    className={`absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full ring-1 ring-[#290044] ${
+                                      scr.connectionStatus === 'Online'
+                                        ? 'bg-emerald-400'
+                                        : 'bg-rose-400'
+                                    }`}
+                                  />
+                                  {slide?.type === 'Video' && (
+                                    <span
+                                      aria-hidden="true"
+                                      className="absolute bottom-0.5 left-0.5 w-3 h-3 rounded bg-black/70 text-white flex items-center justify-center"
+                                    >
+                                      <Play className="w-1.5 h-1.5 fill-current" />
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {extraScreens > 0 && (
+                              <span className="h-7 px-1.5 rounded border border-[#E6E0EC] bg-[#FAF8FC] text-[11px] font-mono font-semibold text-[#500071] inline-flex items-center tabular-nums">
+                                +{extraScreens}
+                              </span>
+                            )}
+                            <span className="ml-1 inline-flex items-center gap-1 text-[12px] font-medium text-[#500071] group-hover/preview:text-[#8A2A78] whitespace-nowrap tabular-nums">
+                              {cmp.targetScreenIds.length} displays
+                              <Eye className="w-3 h-3 opacity-70" />
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] text-[#645573] truncate max-w-[230px] tabular-nums">
+                            {targetScreens.length > 0
+                              ? `${targetScreens[0].id} (${leadOnline}/${targetScreens.length} online)`
+                              : 'No displays linked'}
+                          </p>
+                        </button>
+                      </td>
+                      <td className="py-3.5 px-4 text-[#645573] font-mono text-[13px] tabular-nums whitespace-nowrap">
+                        {cmp.startDate} → {cmp.endDate}
+                      </td>
+                      <td className="py-3.5 px-6 text-right">
+                        <StatusBadge status={cmp.status} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -412,6 +517,120 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </section>
         </div>
       </div>
+
+      {/* Assigned Displays Preview Modal */}
+      <Modal
+        isOpen={Boolean(previewCampaign)}
+        onClose={() => setPreviewCampaign(null)}
+        title={previewCampaign ? `${previewCampaign.name} · Display Previews` : 'Display Previews'}
+        subtitle={
+          previewCampaign
+            ? `${previewCampaign.targetScreenIds.length} assigned screen(s) · ${previewCampaign.startDate} → ${previewCampaign.endDate}`
+            : ''
+        }
+        size="xl"
+      >
+        {previewCampaign && (() => {
+          const targetScreens = getCampaignScreens(previewCampaign);
+          const slides = getCampaignSlides(previewCampaign);
+          const playlist = playlists.find((p) => p.id === previewCampaign.playlistId);
+
+          return (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-[#FAF8FC] border border-[#E8E2EE] text-xs">
+                <div className="space-y-0.5">
+                  <p className="text-[#645573]">Assigned Playlist</p>
+                  <p className="font-semibold text-[#290044]">
+                    {playlist?.name || 'No playlist linked'} ({slides.length} slide
+                    {slides.length === 1 ? '' : 's'})
+                  </p>
+                </div>
+                <StatusBadge status={previewCampaign.status} />
+              </div>
+
+              {targetScreens.length === 0 ? (
+                <p className="text-xs text-[#645573]">
+                  No displays are currently assigned to this campaign.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {targetScreens.map((scr, idx) => {
+                    const activeMedia =
+                      slides[idx % Math.max(1, slides.length)] ||
+                      mediaAssets.find((m) => m.id === scr.currentMediaId);
+                    return (
+                      <div
+                        key={scr.id}
+                        className="rounded-xl border border-[#E8E2EE] bg-white p-3 space-y-2.5"
+                      >
+                        <div className="rounded-lg border-[3px] border-[#290044] bg-[#290044] overflow-hidden shadow-sm">
+                          {activeMedia ? (
+                            <MediaThumbnail
+                              src={activeMedia.thumbnailUrl}
+                              alt={activeMedia.title}
+                              type={activeMedia.type}
+                              durationSeconds={activeMedia.durationSeconds}
+                              accentTone={activeMedia.accentTone}
+                              className="aspect-video !rounded-none !border-0"
+                            />
+                          ) : (
+                            <div className="aspect-video flex flex-col items-center justify-center text-white/70 text-xs">
+                              <Monitor className="w-6 h-6 mb-1" />
+                              <span>No active media</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-mono font-semibold text-[#500071]">
+                              {scr.id}
+                            </p>
+                            <p className="text-xs font-semibold text-[#290044] truncate">
+                              {scr.name}
+                            </p>
+                            <p className="text-[11px] text-[#645573] truncate">
+                              {scr.building} · {scr.floor}
+                            </p>
+                          </div>
+                          <StatusBadge status={scr.connectionStatus} />
+                        </div>
+                        {activeMedia && (
+                          <p className="pt-2 border-t border-[#F1ECF6] text-[11px] text-[#645573] truncate">
+                            Previewing: <span className="text-[#290044] font-medium">{activeMedia.title}</span>
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-[#F1ECF6]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewCampaign(null);
+                    onNavigate('screens');
+                  }}
+                  className="px-4 py-2 rounded-lg border border-[#E8E2EE] text-xs font-semibold text-[#290044] hover:bg-[#FAF8FC]"
+                >
+                  Open Screen Management
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewCampaign(null);
+                    onNavigate('campaigns');
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
+                >
+                  Manage Campaign
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 };

@@ -429,6 +429,8 @@ export default function App() {
             <DashboardPage
               screens={screens}
               campaigns={campaigns}
+              playlists={playlists}
+              mediaAssets={mediaAssets}
               totalMediaCount={totalMediaCount}
               activities={activities}
               onNavigate={setActiveRoute}
