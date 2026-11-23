@@ -1,0 +1,8 @@
+{
+  "name": "CampusCast — University Digital Signage Management",
+  "description": "Centralized digital signage management dashboard for university IT teams to organize campus TV screens, manage media libraries, build playlists, schedule campaigns, and monitor playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

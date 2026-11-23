@@ -1,0 +1,767 @@
+import React, { useEffect, useState } from 'react';
+import {
+  Calendar as CalendarIcon,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  List,
+  Pause,
+  Play,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react';
+import {
+  Campaign,
+  CampaignStatus,
+  Playlist,
+  ScreenDevice,
+  ScreenGroup,
+} from '../types/signage';
+import { StatusBadge } from '../components/ui/StatusBadge';
+import { Modal } from '../components/ui/Modal';
+
+interface CampaignsPageProps {
+  campaigns: Campaign[];
+  playlists: Playlist[];
+  screens: ScreenDevice[];
+  groups: ScreenGroup[];
+  openWizardSignal: number;
+  onSaveCampaign: (campaign: Campaign) => void;
+  onUpdateStatus: (id: string, status: CampaignStatus) => void;
+  onDeleteCampaign: (id: string) => void;
+}
+
+const STATUS_TABS: ('All' | CampaignStatus)[] = [
+  'All',
+  'Active',
+  'Scheduled',
+  'Draft',
+  'Paused',
+  'Completed',
+];
+
+const WIZARD_STEPS = [
+  'Campaign Details',
+  'Select Playlist',
+  'Select Screens',
+  'Set Schedule',
+  'Review & Publish',
+];
+
+export const CampaignsPage: React.FC<CampaignsPageProps> = ({
+  campaigns,
+  playlists,
+  screens,
+  groups,
+  openWizardSignal,
+  onSaveCampaign,
+  onUpdateStatus,
+  onDeleteCampaign,
+}) => {
+  const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
+  const [statusFilter, setStatusFilter] = useState<'All' | CampaignStatus>('All');
+  const [search, setSearch] = useState('');
+  const [calendarMonth, setCalendarMonth] = useState<'2026-11' | '2026-12'>('2026-11');
+
+  // 5-Step Wizard Modal State
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [step, setStep] = useState(1);
+  const [wizardError, setWizardError] = useState('');
+
+  const [cmpName, setCmpName] = useState('');
+  const [cmpDesc, setCmpDesc] = useState('');
+  const [cmpPriority, setCmpPriority] = useState<'Normal' | 'High' | 'Urgent'>('Normal');
+  const [cmpPlaylistId, setCmpPlaylistId] = useState(playlists[0]?.id || '');
+  const [cmpGroupIds, setCmpGroupIds] = useState<string[]>([]);
+  const [cmpScreenIds, setCmpScreenIds] = useState<string[]>([]);
+  const [cmpStartDate, setCmpStartDate] = useState('2026-11-24');
+  const [cmpEndDate, setCmpEndDate] = useState('2026-12-10');
+  const [cmpStartTime, setCmpStartTime] = useState('08:30');
+  const [cmpEndTime, setCmpEndTime] = useState('19:30');
+
+  useEffect(() => {
+    if (openWizardSignal > 0) {
+      openWizard();
+    }
+  }, [openWizardSignal]);
+
+  const openWizard = () => {
+    setStep(1);
+    setWizardError('');
+    setCmpName('');
+    setCmpDesc('');
+    setCmpPriority('Normal');
+    setCmpPlaylistId(playlists[0]?.id || '');
+    setCmpGroupIds(['grp-a-0']);
+    setCmpScreenIds(['DYPIU-TV-001', 'DYPIU-TV-006']);
+    setCmpStartDate('2026-11-24');
+    setCmpEndDate('2026-12-10');
+    setCmpStartTime('08:30');
+    setCmpEndTime('19:30');
+    setWizardOpen(true);
+  };
+
+  const toggleGroupSelection = (grp: ScreenGroup) => {
+    const exists = cmpGroupIds.includes(grp.id);
+    if (exists) {
+      setCmpGroupIds((prev) => prev.filter((id) => id !== grp.id));
+    } else {
+      setCmpGroupIds((prev) => [...prev, grp.id]);
+      setCmpScreenIds((prev) => Array.from(new Set([...prev, ...grp.screenIds])));
+    }
+  };
+
+  const toggleScreenSelection = (screenId: string) => {
+    setCmpScreenIds((prev) =>
+      prev.includes(screenId) ? prev.filter((id) => id !== screenId) : [...prev, screenId]
+    );
+  };
+
+  const validateAndNext = () => {
+    setWizardError('');
+    if (step === 1 && !cmpName.trim()) {
+      setWizardError('Please enter a campaign name before continuing.');
+      return;
+    }
+    if (step === 2 && !cmpPlaylistId) {
+      setWizardError('Please select a playlist for this campaign.');
+      return;
+    }
+    if (step === 3 && cmpScreenIds.length === 0) {
+      setWizardError('Select at least one screen or screen group.');
+      return;
+    }
+    if (step === 4) {
+      if (!cmpStartDate || !cmpEndDate || cmpEndDate < cmpStartDate) {
+        setWizardError('End date must be on or after the start date.');
+        return;
+      }
+    }
+    setStep((s) => Math.min(5, s + 1));
+  };
+
+  const submitWizard = (targetStatus: CampaignStatus) => {
+    const newCmp: Campaign = {
+      id: `cmp-${Date.now().toString().slice(-4)}`,
+      name: cmpName.trim(),
+      description: cmpDesc.trim() || 'Scheduled university signage campaign.',
+      playlistId: cmpPlaylistId,
+      startDate: cmpStartDate,
+      endDate: cmpEndDate,
+      startTime: cmpStartTime,
+      endTime: cmpEndTime,
+      targetScreenIds: cmpScreenIds,
+      targetGroupIds: cmpGroupIds,
+      status: targetStatus,
+      priority: cmpPriority,
+      createdBy: 'Vinod Kumar Jain',
+    };
+    onSaveCampaign(newCmp);
+    setWizardOpen(false);
+  };
+
+  const filteredCampaigns = campaigns.filter((c) => {
+    const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
+    const q = search.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      c.name.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
+
+  const getPlaylistName = (id: string) =>
+    playlists.find((p) => p.id === id)?.name || 'Unassigned Playlist';
+
+  // Calendar grid builder for Nov/Dec 2026
+  const daysInMonth = calendarMonth === '2026-11' ? 30 : 31;
+  // Nov 1 2026 is Sunday (0), Dec 1 2026 is Tuesday (2)
+  const firstDayOffset = calendarMonth === '2026-11' ? 0 : 2;
+  const calendarCells = Array.from({ length: firstDayOffset + daysInMonth }, (_, i) => {
+    if (i < firstDayOffset) return null;
+    const dayNum = i - firstDayOffset + 1;
+    const dateStr = `${calendarMonth}-${String(dayNum).padStart(2, '0')}`;
+    const matching = filteredCampaigns.filter(
+      (c) => dateStr >= c.startDate && dateStr <= c.endDate
+    );
+    return { dayNum, dateStr, matching };
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Header & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="type-section-title text-[#290044]">
+            Campaign scheduler
+          </h2>
+          <p className="type-support text-[#645573]">
+            Coordinate time-bound university promotions across campus TV groups.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center p-1 bg-white border border-[#E6E0EC] rounded-lg">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${
+                viewMode === 'table'
+                  ? 'bg-[#500071] text-white'
+                  : 'text-[#645573] hover:text-[#290044]'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              Table
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('calendar')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${
+                viewMode === 'calendar'
+                  ? 'bg-[#500071] text-white'
+                  : 'text-[#645573] hover:text-[#290044]'
+              }`}
+            >
+              <CalendarIcon className="w-3.5 h-3.5" />
+              Calendar
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={openWizard}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#500071] text-white type-button hover:bg-[#8A2A78] transition-colors whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            Schedule campaign
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="bg-white border border-[#E8E2EE] rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {STATUS_TABS.map((tab) => {
+            const count =
+              tab === 'All'
+                ? campaigns.length
+                : campaigns.filter((c) => c.status === tab).length;
+            return (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setStatusFilter(tab)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap tabular-nums ${
+                  statusFilter === tab
+                    ? 'bg-[#EEE3B0] text-[#290044] font-semibold'
+                    : 'text-[#645573] hover:bg-[#FAF8FC] hover:text-[#290044]'
+                }`}
+              >
+                {tab} ({count})
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative w-full lg:w-72">
+          <Search className="w-4 h-4 text-[#6E607D] absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter campaigns..."
+            className="w-full pl-9 pr-3 py-2 text-xs bg-[#FAF8FC] border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78] focus:bg-white"
+          />
+        </div>
+      </div>
+
+      {/* Table or Calendar */}
+      {viewMode === 'table' ? (
+        <div className="bg-white border border-[#E8E2EE] rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-[#E8E2EE] bg-[#FAF8FC] text-[11px] font-semibold text-[#645573]">
+                  <th className="py-3 px-4">Campaign Name</th>
+                  <th className="py-3 px-4">Playlist</th>
+                  <th className="py-3 px-4">Date Range</th>
+                  <th className="py-3 px-4">Daily Window</th>
+                  <th className="py-3 px-4">Assigned Screens</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F1ECF6] text-xs">
+                {filteredCampaigns.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-10 text-center text-[#645573]">
+                      No campaigns match your current filters.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCampaigns.map((cmp) => (
+                    <tr key={cmp.id} className="hover:bg-[#FAF8FC] transition-colors">
+                      <td className="py-3.5 px-4">
+                        <p className="font-semibold text-[#290044]">{cmp.name}</p>
+                        <p className="text-[11px] text-[#645573] truncate max-w-xs">
+                          {cmp.description}
+                        </p>
+                      </td>
+                      <td className="py-3.5 px-4 text-[#500071] font-medium">
+                        {getPlaylistName(cmp.playlistId)}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono tabular-nums text-[#645573] whitespace-nowrap">
+                        {cmp.startDate} → {cmp.endDate}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono tabular-nums text-[#645573] whitespace-nowrap">
+                        {cmp.startTime} – {cmp.endTime}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono tabular-nums text-[#290044]">
+                        {cmp.targetScreenIds.length} screens
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <StatusBadge status={cmp.status} />
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="inline-flex items-center gap-1">
+                          {cmp.status === 'Active' ? (
+                            <button
+                              type="button"
+                              onClick={() => onUpdateStatus(cmp.id, 'Paused')}
+                              title="Pause campaign"
+                              className="p-1.5 rounded-md text-amber-700 hover:bg-amber-50"
+                            >
+                              <Pause className="w-3.5 h-3.5" />
+                            </button>
+                          ) : cmp.status === 'Paused' || cmp.status === 'Draft' ? (
+                            <button
+                              type="button"
+                              onClick={() => onUpdateStatus(cmp.id, 'Active')}
+                              title="Activate campaign"
+                              className="p-1.5 rounded-md text-emerald-700 hover:bg-emerald-50"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => onDeleteCampaign(cmp.id)}
+                            title="Delete campaign"
+                            className="p-1.5 rounded-md text-rose-600 hover:bg-rose-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white border border-[#E8E2EE] rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-[#290044] font-display">
+              {calendarMonth === '2026-11' ? 'November 2026' : 'December 2026'}
+            </h3>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCalendarMonth('2026-11')}
+                disabled={calendarMonth === '2026-11'}
+                className="p-1.5 rounded-lg border border-[#E8E2EE] text-[#290044] disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCalendarMonth('2026-12')}
+                disabled={calendarMonth === '2026-12'}
+                className="p-1.5 rounded-lg border border-[#E8E2EE] text-[#290044] disabled:opacity-40"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-7 gap-2 text-center text-[11px] font-semibold text-[#645573]">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+              <div key={d} className="py-1">
+                {d}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-2">
+            {calendarCells.map((cell, idx) =>
+              cell === null ? (
+                <div key={`empty-${idx}`} className="min-h-24 rounded-lg bg-[#FAF8FC]/60" />
+              ) : (
+                <div
+                  key={cell.dateStr}
+                  className={`min-h-24 rounded-lg border p-2 flex flex-col gap-1 ${
+                    cell.dateStr === '2026-11-23'
+                      ? 'border-[#500071] bg-[#EEE3B0]/20'
+                      : 'border-[#E8E2EE] bg-white'
+                  }`}
+                >
+                  <span className="text-[11px] font-mono font-semibold text-[#290044] tabular-nums">
+                    {cell.dayNum}
+                  </span>
+                  <div className="space-y-1 overflow-hidden">
+                    {cell.matching.slice(0, 3).map((m) => (
+                      <div
+                        key={m.id}
+                        title={m.name}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate ${
+                          m.status === 'Active'
+                            ? 'bg-[#500071] text-white'
+                            : m.status === 'Scheduled'
+                              ? 'bg-[#EEE3B0] text-[#290044]'
+                              : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {m.name}
+                      </div>
+                    ))}
+                    {cell.matching.length > 3 && (
+                      <span className="block text-[10px] text-[#645573] font-mono">
+                        +{cell.matching.length - 3} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 5-Step Campaign Creation Wizard Modal */}
+      <Modal
+        isOpen={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        title="Create Signage Campaign"
+        subtitle={`Step ${step} of 5 · ${WIZARD_STEPS[step - 1]}`}
+        size="xl"
+      >
+        <div className="space-y-6">
+          {/* Stepper Indicator */}
+          <ol className="grid grid-cols-5 gap-2">
+            {WIZARD_STEPS.map((label, idx) => {
+              const sNum = idx + 1;
+              const isCompleted = step > sNum;
+              const isCurrent = step === sNum;
+              return (
+                <li
+                  key={label}
+                  className={`p-2.5 rounded-lg border text-xs transition-colors ${
+                    isCurrent
+                      ? 'border-[#500071] bg-[#EEE3B0]/35 text-[#290044]'
+                      : isCompleted
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                        : 'border-[#E8E2EE] bg-[#FAF8FC] text-[#645573]'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <span
+                      className={`w-5 h-5 rounded-full text-[11px] font-mono flex items-center justify-center shrink-0 ${
+                        isCurrent
+                          ? 'bg-[#500071] text-white'
+                          : isCompleted
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-[#E8E2EE] text-[#645573]'
+                      }`}
+                    >
+                      {isCompleted ? <Check className="w-3 h-3" /> : sNum}
+                    </span>
+                    <span className="truncate hidden sm:inline">{label}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+
+          {/* Step 1: Campaign Details */}
+          {step === 1 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  Campaign Name *
+                </label>
+                <input
+                  type="text"
+                  value={cmpName}
+                  onChange={(e) => setCmpName(e.target.value)}
+                  placeholder="e.g., Spring Orientation Welcome Banner"
+                  className="w-full px-3 py-2.5 text-xs border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  Campaign Description
+                </label>
+                <textarea
+                  rows={3}
+                  value={cmpDesc}
+                  onChange={(e) => setCmpDesc(e.target.value)}
+                  placeholder="Target audience, department sponsor, and display goal..."
+                  className="w-full px-3 py-2.5 text-xs border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  Playback Priority
+                </label>
+                <select
+                  value={cmpPriority}
+                  onChange={(e) =>
+                    setCmpPriority(e.target.value as 'Normal' | 'High' | 'Urgent')
+                  }
+                  className="w-full px-3 py-2.5 text-xs border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                >
+                  <option value="Normal">Normal (Standard Rotation)</option>
+                  <option value="High">High (Weighted Frequency)</option>
+                  <option value="Urgent">Urgent (Campus Priority Override)</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Select Playlist */}
+          {step === 2 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
+              {playlists.map((pl) => {
+                const selected = cmpPlaylistId === pl.id;
+                return (
+                  <button
+                    key={pl.id}
+                    type="button"
+                    onClick={() => setCmpPlaylistId(pl.id)}
+                    className={`p-4 rounded-xl border text-left transition-all ${
+                      selected
+                        ? 'border-[#500071] bg-[#EEE3B0]/30 ring-1 ring-[#500071]'
+                        : 'border-[#E8E2EE] hover:border-[#8A2A78]/50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-bold text-[#290044] font-display">
+                        {pl.name}
+                      </span>
+                      <StatusBadge status={pl.status} />
+                    </div>
+                    <p className="mt-1 text-xs text-[#645573] line-clamp-2">{pl.description}</p>
+                    <p className="mt-2.5 text-[11px] font-mono text-[#500071]">
+                      {pl.items.length} media items · {pl.assignedScreenIds.length} linked TVs
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Step 3: Select Screens or Screen Groups */}
+          {step === 3 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-[#290044]">Quick Select Screen Groups</p>
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                  {groups.map((grp) => {
+                    const checked = cmpGroupIds.includes(grp.id);
+                    return (
+                      <label
+                        key={grp.id}
+                        className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer text-xs ${
+                          checked
+                            ? 'border-[#500071] bg-[#EEE3B0]/25'
+                            : 'border-[#E8E2EE] hover:bg-[#FAF8FC]'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleGroupSelection(grp)}
+                          className="accent-[#500071] mt-0.5"
+                        />
+                        <div className="min-w-0">
+                          <span className="font-semibold text-[#290044] block">{grp.name}</span>
+                          <span className="text-[11px] text-[#645573]">
+                            {grp.screenIds.length} screens · {grp.description}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-[#290044]">
+                  Individual Displays ({cmpScreenIds.length} selected)
+                </p>
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 border border-[#E8E2EE] rounded-lg p-2">
+                  {screens.map((scr) => {
+                    const checked = cmpScreenIds.includes(scr.id);
+                    return (
+                      <label
+                        key={scr.id}
+                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md hover:bg-[#FAF8FC] cursor-pointer text-xs"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleScreenSelection(scr.id)}
+                            className="accent-[#500071]"
+                          />
+                          <span className="font-mono text-[11px] text-[#500071]">{scr.id}</span>
+                          <span className="text-[#290044] truncate">{scr.name}</span>
+                        </span>
+                        <span className="text-[11px] text-[#645573] shrink-0">
+                          {scr.building}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Set Schedule */}
+          {step === 4 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={cmpStartDate}
+                  onChange={(e) => setCmpStartDate(e.target.value)}
+                  className="w-full px-3 py-2.5 text-xs font-mono border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={cmpEndDate}
+                  onChange={(e) => setCmpEndDate(e.target.value)}
+                  className="w-full px-3 py-2.5 text-xs font-mono border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  Daily Start Time
+                </label>
+                <input
+                  type="time"
+                  value={cmpStartTime}
+                  onChange={(e) => setCmpStartTime(e.target.value)}
+                  className="w-full px-3 py-2.5 text-xs font-mono border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  Daily End Time
+                </label>
+                <input
+                  type="time"
+                  value={cmpEndTime}
+                  onChange={(e) => setCmpEndTime(e.target.value)}
+                  className="w-full px-3 py-2.5 text-xs font-mono border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Step 5: Review and Publish */}
+          {step === 5 && (
+            <div className="rounded-xl bg-[#FAF8FC] border border-[#E8E2EE] p-5 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[#645573]">Campaign Title</p>
+                  <p className="font-bold text-sm text-[#290044] mt-0.5">{cmpName}</p>
+                </div>
+                <div>
+                  <p className="text-[#645573]">Assigned Playlist</p>
+                  <p className="font-semibold text-[#500071] mt-0.5">
+                    {getPlaylistName(cmpPlaylistId)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[#645573]">Schedule Window</p>
+                  <p className="font-mono font-semibold text-[#290044] mt-0.5 tabular-nums">
+                    {cmpStartDate} → {cmpEndDate} ({cmpStartTime} – {cmpEndTime})
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[#645573]">Target Fleet</p>
+                  <p className="font-mono font-semibold text-[#290044] mt-0.5 tabular-nums">
+                    {cmpScreenIds.length} campus displays ({cmpPriority} Priority)
+                  </p>
+                </div>
+              </div>
+              <p className="text-[11px] text-[#645573] border-t border-[#E8E2EE] pt-3">
+                Simulated prototype action: Publishing saves this campaign locally and queues it for display distribution.
+              </p>
+            </div>
+          )}
+
+          {wizardError && (
+            <p className="text-xs font-medium text-rose-700">{wizardError}</p>
+          )}
+
+          {/* Wizard Footer Controls */}
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#E8E2EE]">
+            <button
+              type="button"
+              onClick={() => (step === 1 ? setWizardOpen(false) : setStep((s) => s - 1))}
+              className="px-4 py-2 rounded-lg border border-[#E8E2EE] text-xs font-semibold text-[#290044] hover:bg-[#FAF8FC]"
+            >
+              {step === 1 ? 'Cancel' : 'Back'}
+            </button>
+
+            <div className="flex items-center gap-2.5">
+              {step === 5 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => submitWizard('Draft')}
+                    className="px-4 py-2 rounded-lg border border-[#500071] text-[#500071] text-xs font-semibold hover:bg-[#FAF8FC]"
+                  >
+                    Save as Draft
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      submitWizard(cmpStartDate <= '2026-11-23' ? 'Active' : 'Scheduled')
+                    }
+                    className="px-5 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
+                  >
+                    Schedule & Publish
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={validateAndNext}
+                  className="px-5 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
+                >
+                  Continue
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+};
