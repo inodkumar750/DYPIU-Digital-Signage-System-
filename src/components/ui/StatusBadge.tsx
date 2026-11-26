@@ -13,6 +13,7 @@ import {
 export type BadgeTone =
   | 'Online'
   | 'Offline'
+  | 'Standby'
   | 'Active'
   | 'Scheduled'
   | 'Draft'
@@ -67,6 +68,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' })
           icon: <Loader2 className="w-3 h-3 shrink-0 text-[#500071] animate-spin" />,
         };
       case 'Paused':
+      case 'Standby':
         return {
           classes: 'bg-amber-50 text-amber-800 border-amber-200',
           icon: <PauseCircle className="w-3 h-3 shrink-0 text-amber-600" />,

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CampusCast Compat TV &amp; Standy Player</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0F051D;
+      color: #FFFFFF;
+      font-family: sans-serif;
+    }
+    #app {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-flex-direction: column;
+      flex-direction: column;
+      background: #000000;
+    }
+    #stage {
+      position: relative;
+      -webkit-flex: 1 1 0%;
+      flex: 1 1 0%;
+      min-height: 0;
+      width: 100%;
+      background: #0F051D;
+      overflow: hidden;
+    }
+    #mediaWrap {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-align-items: center;
+      align-items: center;
+      -webkit-justify-content: center;
+      justify-content: center;
+    }
+    #imgPlayer, #vidPlayer {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: none;
+    }
+    #statusScreen {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-flex-direction: column;
+      flex-direction: column;
+      -webkit-align-items: center;
+      align-items: center;
+      -webkit-justify-content: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+      background: #1A0B2E;
+    }
+    #statusTitle { font-size: 20px; font-weight: bold; color: #EEE3B0; margin-bottom: 10px; }
+    #statusMsg { font-size: 14px; color: #D7CEE0; max-width: 520px; line-height: 1.5; }
+    #footerBar {
+      height: 60px;
+      min-height: 60px;
+      background: #290044;
+      border-top: 1px solid rgba(138, 42, 120, 0.4);
+      display: -webkit-flex;
+      display: flex;
+      -webkit-align-items: center;
+      align-items: center;
+      -webkit-justify-content: space-between;
+      justify-content: space-between;
+      padding: 0 20px;
+      -webkit-flex-shrink: 0;
+      flex-shrink: 0;
+    }
+    .brand { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
+    .badge {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: #500071; border: 1px solid rgba(238,227,176,0.4);
+      color: #EEE3B0; font-weight: bold; font-size: 13px;
+      display: -webkit-flex; display: flex;
+      -webkit-align-items: center; align-items: center;
+      -webkit-justify-content: center; justify-content: center;
+      margin-right: 10px;
+    }
+    .uniTitle { font-size: 13px; font-weight: bold; color: #FFFFFF; }
+    .scrSub { font-size: 11px; color: #EEE3B0; opacity: 0.85; }
+    #tickerText {
+      -webkit-flex: 1 1 0%;
+      flex: 1 1 0%;
+      margin: 0 18px;
+      font-size: 12px;
+      color: #EEE3B0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: center;
+    }
+    #clockBox { text-align: right; flex-shrink: 0; }
+    #clockTime { font-size: 15px; font-weight: bold; font-family: monospace; color: #FFFFFF; }
+    #clockDate { font-size: 11px; color: #EEE3B0; opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="stage">
+      <div id="mediaWrap">
+        <img id="imgPlayer" alt="" />
+        <video id="vidPlayer" muted playsinline autoplay></video>
+      </div>
+      <div id="statusScreen">
+        <div id="statusTitle">Connecting to CampusCast...</div>
+        <div id="statusMsg">Loading display schedule...</div>
+      </div>
+    </div>
+    <div id="footerBar">
+      <div class="brand">
+        <div class="badge">DYP</div>
+        <div>
+          <div class="uniTitle">D.Y. Patil International University</div>
+          <div id="scrSub" class="scrSub">Campus Display</div>
+        </div>
+      </div>
+      <div id="tickerText">CampusCast Digital Signage Network</div>
+      <div id="clockBox">
+        <div id="clockTime">--:--</div>
+        <div id="clockDate"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      function getParam(name) {
+        var search = window.location.search || '';
+        var pairs = search.replace(/^\?/, '').split('&');
+        for (var i = 0; i < pairs.length; i++) {
+          var kv = pairs[i].split('=');
+          if (decodeURIComponent(kv[0] || '') === name) {
+            return decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+          }
+        }
+        return '';
+      }
+
+      var screenId = getParam('tv') || getParam('screenId') || getParam('screen') || 'DYPIU-STENDY';
+      var host = window.location.hostname || 'localhost';
+      var apiBase = 'http://' + host + ':5000/api/v1';
+
+      var imgEl = document.getElementById('imgPlayer');
+      var vidEl = document.getElementById('vidPlayer');
+      var statusEl = document.getElementById('statusScreen');
+      var statusTitle = document.getElementById('statusTitle');
+      var statusMsg = document.getElementById('statusMsg');
+      var footerEl = document.getElementById('footerBar');
+      var scrSubEl = document.getElementById('scrSub');
+      var tickerEl = document.getElementById('tickerText');
+      var clockTimeEl = document.getElementById('clockTime');
+      var clockDateEl = document.getElementById('clockDate');
+
+      var slides = [];
+      var playlistName = '';
+      var slideIndex = 0;
+      var slideTimer = null;
+      var activeKey = '';
+      var currentMediaId = null;
+
+      function updateClock() {
+        var d = new Date();
+        var hrs = d.getHours();
+        var ampm = hrs >= 12 ? 'PM' : 'AM';
+        var h12 = hrs % 12;
+        if (h12 === 0) h12 = 12;
+        var mins = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+        var secs = (d.getSeconds() < 10 ? '0' : '') + d.getSeconds();
+        clockTimeEl.textContent = (h12 < 10 ? '0' : '') + h12 + ':' + mins + ':' + secs + ' ' + ampm;
+        clockDateEl.textContent = d.toDateString();
+      }
+      updateClock();
+      setInterval(updateClock, 1000);
+
+      function httpGetJson(url, cb) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.timeout = 5000;
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                cb(null, JSON.parse(xhr.responseText));
+              } catch (e) {
+                cb(e);
+              }
+            } else {
+              cb(new Error('HTTP ' + xhr.status));
+            }
+          }
+        };
+        xhr.onerror = function () { cb(new Error('Network error')); };
+        xhr.ontimeout = function () { cb(new Error('Timeout')); };
+        xhr.send();
+      }
+
+      function showStatus(title, msg) {
+        imgEl.style.display = 'none';
+        vidEl.style.display = 'none';
+        try { vidEl.pause(); } catch (e) {}
+        statusEl.style.display = '-webkit-flex';
+        statusEl.style.display = 'flex';
+        statusTitle.textContent = title;
+        statusMsg.textContent = msg;
+      }
+
+      function renderSlide() {
+        if (slideTimer) {
+          clearTimeout(slideTimer);
+          slideTimer = null;
+        }
+        if (!slides || slides.length === 0) {
+          return;
+        }
+        if (slideIndex >= slides.length) slideIndex = 0;
+        var slide = slides[slideIndex];
+        currentMediaId = slide.mediaId || null;
+
+        statusEl.style.display = 'none';
+        tickerEl.textContent = (playlistName ? '[' + playlistName + '] — ' : '') + (slide.title || 'CampusCast Media');
+
+        var durationMs = Math.max(3, parseInt(slide.durationSeconds, 10) || 10) * 1000;
+        var url = slide.downloadUrl || '';
+        var isVid = slide.type === 'Video' && /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
+
+        if (isVid) {
+          imgEl.style.display = 'none';
+          vidEl.style.display = 'block';
+          vidEl.muted = true;
+          vidEl.loop = Boolean(slide.loopVideo);
+          if (vidEl.getAttribute('src') !== url) {
+            vidEl.src = url;
+          }
+          vidEl.onended = function () {
+            if (!slide.loopVideo && slides.length > 1) {
+              slideIndex = (slideIndex + 1) % slides.length;
+              renderSlide();
+            }
+          };
+          try {
+            var p = vidEl.play();
+            if (p && p.catch) p.catch(function () {});
+          } catch (e) {}
+          slideTimer = setTimeout(function () {
+            if (slides.length > 1) {
+              slideIndex = (slideIndex + 1) % slides.length;
+              renderSlide();
+            }
+          }, durationMs + 5000);
+        } else {
+          try { vidEl.pause(); } catch (e) {}
+          vidEl.style.display = 'none';
+          if (imgEl.getAttribute('src') === url && imgEl.complete && imgEl.naturalWidth > 0) {
+            imgEl.style.display = 'block';
+          } else {
+            var loader = new Image();
+            loader.onload = function () {
+              imgEl.src = url;
+              imgEl.style.display = 'block';
+            };
+            loader.onerror = function () {
+              setTimeout(function () {
+                if (slides.length > 0 && slides[slideIndex] && slides[slideIndex].downloadUrl === url) {
+                  renderSlide();
+                }
+              }, 1500);
+            };
+            loader.src = url;
+          }
+          if (slides.length > 1) {
+            slideTimer = setTimeout(function () {
+              slideIndex = (slideIndex + 1) % slides.length;
+              renderSlide();
+            }, durationMs);
+          }
+        }
+      }
+
+      function pollManifest() {
+        httpGetJson(apiBase + '/device/' + encodeURIComponent(screenId) + '/manifest', function (err, data) {
+          if (err || !data || !data.success) {
+            if (slides.length === 0) {
+              showStatus('Waiting for CampusCast Server...', 'Cannot reach ' + apiBase + ' for screen "' + screenId + '". Retrying...');
+            }
+            return;
+          }
+
+          if (data.screenName) {
+            scrSubEl.textContent = data.screenName + ' · ' + (data.building || '') + ' (' + (data.floor || '') + ')';
+          }
+
+          if (data.isActive === false) {
+            slides = [];
+            activeKey = '';
+            showStatus('Screen in Standby Mode', screenId + ' is deactivated in Screen Management.');
+            return;
+          }
+
+          if (!data.playlist || !data.playlist.slides || data.playlist.slides.length === 0) {
+            slides = [];
+            activeKey = '';
+            showStatus('Ready — Waiting for Playlist', 'Display "' + screenId + '" is online. Assign a playlist or schedule a campaign from Dashboard.');
+            return;
+          }
+
+          playlistName = data.playlist.name || '';
+          var newKey = data.playlist.id + ':' + JSON.stringify(data.playlist.slides.map(function (s) {
+            return s.mediaId + ':' + s.durationSeconds + ':' + s.order + ':' + s.downloadUrl;
+          }));
+
+          if (newKey !== activeKey) {
+            activeKey = newKey;
+            slides = data.playlist.slides;
+            for (var pIdx = 0; pIdx < slides.length; pIdx++) {
+              if (slides[pIdx].type !== 'Video' && slides[pIdx].downloadUrl) {
+                new Image().src = slides[pIdx].downloadUrl;
+              }
+            }
+            slideIndex = 0;
+            renderSlide();
+          }
+        });
+
+        httpGetJson(apiBase + '/settings', function (err, sRes) {
+          if (!err && sRes && sRes.success && sRes.data) {
+            var hideFromUrl = getParam('ticker') === '0' || getParam('hideTicker') === '1';
+            var show = !hideFromUrl && sRes.data.showTvTicker !== false;
+            footerEl.style.display = show ? 'flex' : 'none';
+          }
+        });
+      }
+
+      function sendHeartbeat() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', apiBase + '/device/' + encodeURIComponent(screenId) + '/heartbeat', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify({
+          currentMediaId: currentMediaId,
+          storageUsedPct: 35,
+          playerAppVersion: 'v1.4.2-compat',
+          playbackError: null
+        }));
+      }
+
+      pollManifest();
+      sendHeartbeat();
+      setInterval(pollManifest, 3000);
+      setInterval(sendHeartbeat, 15000);
+    })();
+  </script>
+</body>
+</html>

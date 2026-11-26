@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   HelpCircle,
+  LogOut,
   Menu,
   Monitor,
   Search,
@@ -18,6 +19,7 @@ import {
   PageRoute,
   Playlist,
   ScreenDevice,
+  UserAccount,
 } from '../../types/signage';
 import { ADMIN_AVATAR_URL } from '../../data/mockSignageData';
 
@@ -33,6 +35,9 @@ interface HeaderProps {
   mediaAssets: MediaAsset[];
   playlists: Playlist[];
   onOpenHelp: () => void;
+  currentUser?: UserAccount | null;
+  allowedMenus?: PageRoute[];
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -47,6 +52,9 @@ export const Header: React.FC<HeaderProps> = ({
   mediaAssets,
   playlists,
   onOpenHelp,
+  currentUser,
+  allowedMenus,
+  onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -261,6 +269,17 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
+        {/* Live TV Player Launcher */}
+        <button
+          type="button"
+          onClick={() => onNavigate('player')}
+          title="Open Live Full-screen TV Player"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#500071] text-white hover:bg-[#8A2A78] text-[13px] font-semibold transition-colors shrink-0 shadow-sm"
+        >
+          <Monitor className="w-4 h-4 text-[#EEE3B0]" />
+          <span className="hidden md:inline">Open on TV</span>
+        </button>
+
         {/* Notifications */}
         <div ref={notifRef} className="relative">
           <button
@@ -340,18 +359,28 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => setProfileOpen((prev) => !prev)}
             className="flex items-center gap-2.5 pl-1.5 pr-2.5 py-1.5 rounded-lg border border-[#E6E0EC] hover:bg-[#FAF8FC] hover:border-[#8A2A78]/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8A2A78]"
           >
-            <img
-              src={ADMIN_AVATAR_URL}
-              alt="Vinod Kumar Jain"
-              referrerPolicy="no-referrer"
-              className="w-8 h-8 rounded-md object-cover border border-[#E6E0EC]"
-            />
+            {currentUser?.email === 'vinod.jain@dypiu.ac.in' || currentUser?.avatarUrl ? (
+              <img
+                src={currentUser?.avatarUrl || ADMIN_AVATAR_URL}
+                alt={currentUser?.name || 'User'}
+                referrerPolicy="no-referrer"
+                className="w-8 h-8 rounded-md object-cover border border-[#E6E0EC]"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-md bg-[#500071] text-[#EEE3B0] font-bold text-xs flex items-center justify-center border border-[#E6E0EC]">
+                {(currentUser?.name || 'User')
+                  .split(' ')
+                  .map((p) => p[0])
+                  .slice(0, 2)
+                  .join('')}
+              </div>
+            )}
             <div className="hidden sm:block text-left leading-tight">
               <span className="block text-[13px] font-semibold text-[#290044] whitespace-nowrap">
-                Vinod Kumar Jain
+                {currentUser?.name || 'Vinod Kumar Jain'}
               </span>
               <span className="block text-[12px] text-[#645573] whitespace-nowrap">
-                Super administrator
+                {currentUser?.role || 'Super Administrator'}
               </span>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-[#645573] hidden sm:block" />
@@ -360,46 +389,72 @@ export const Header: React.FC<HeaderProps> = ({
           {profileOpen && (
             <div className="absolute right-0 mt-2 w-64 bg-white border border-[#E6E0EC] rounded-xl shadow-lg overflow-hidden z-40">
               <div className="px-4 py-3 border-b border-[#E6E0EC] bg-[#FAF8FC]">
-                <p className="text-[13px] font-semibold text-[#290044]">Vinod Kumar Jain</p>
-                <p className="text-[12px] text-[#645573] truncate">vinodkumar.jain@dypiu.ac.in</p>
+                <p className="text-[13px] font-semibold text-[#290044]">
+                  {currentUser?.name || 'Vinod Kumar Jain'}
+                </p>
+                <p className="text-[12px] text-[#645573] truncate">
+                  {currentUser?.email || 'vinod.jain@dypiu.ac.in'}
+                </p>
                 <p className="mt-1.5 text-[12px] text-[#500071] font-medium">
-                  Frontend prototype · Local session
+                  {currentUser?.role || 'Super Administrator'} · Live MySQL Session
                 </p>
               </div>
               <div className="p-1.5 space-y-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    onNavigate('screens');
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#290044] hover:bg-[#FAF8FC]"
-                >
-                  <Monitor className="w-4 h-4 text-[#500071]" />
-                  Campus displays
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    onNavigate('users');
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#290044] hover:bg-[#FAF8FC]"
-                >
-                  <Users className="w-4 h-4 text-[#500071]" />
-                  User management
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    onNavigate('settings');
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#290044] hover:bg-[#FAF8FC]"
-                >
-                  <Settings className="w-4 h-4 text-[#500071]" />
-                  Platform settings
-                </button>
+                {(!allowedMenus || allowedMenus.includes('screens')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      onNavigate('screens');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#290044] hover:bg-[#FAF8FC]"
+                  >
+                    <Monitor className="w-4 h-4 text-[#500071]" />
+                    Campus displays
+                  </button>
+                )}
+                {(!allowedMenus || allowedMenus.includes('users')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      onNavigate('users');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#290044] hover:bg-[#FAF8FC]"
+                  >
+                    <Users className="w-4 h-4 text-[#500071]" />
+                    User management
+                  </button>
+                )}
+                {(!allowedMenus || allowedMenus.includes('settings')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      onNavigate('settings');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#290044] hover:bg-[#FAF8FC]"
+                  >
+                    <Settings className="w-4 h-4 text-[#500071]" />
+                    Platform settings
+                  </button>
+                )}
+                {onLogout && (
+                  <>
+                    <div className="my-1 border-t border-[#F1ECF6]" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        onLogout();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-semibold text-rose-700 hover:bg-rose-50 cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sign out
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

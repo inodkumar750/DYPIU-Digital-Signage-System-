@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Cast,
+  Check,
+  Copy,
+  Download,
   Edit3,
+  ExternalLink,
   Eye,
   Film,
   Image as ImageIcon,
@@ -12,6 +17,8 @@ import {
   QrCode,
   RefreshCw,
   Search,
+  Trash2,
+  Tv,
 } from 'lucide-react';
 import { MediaAsset, Playlist, ScreenDevice } from '../types/signage';
 import { CAMPUS_BUILDINGS, CAMPUS_FLOORS } from '../data/mockSignageData';
@@ -27,6 +34,8 @@ interface ScreenManagementPageProps {
   onAddScreen: (screen: ScreenDevice) => void;
   onUpdateScreen: (screen: ScreenDevice) => void;
   onToggleActiveScreen: (id: string) => void;
+  onDeleteScreen?: (id: string) => void;
+  onLaunchPlayer?: (screenId: string, mode: 'kiosk' | 'cast') => void;
 }
 
 export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
@@ -37,6 +46,8 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
   onAddScreen,
   onUpdateScreen,
   onToggleActiveScreen,
+  onDeleteScreen,
+  onLaunchPlayer,
 }) => {
   const [search, setSearch] = useState('');
   const [buildingFilter, setBuildingFilter] = useState('All');
@@ -50,7 +61,10 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
   const [pairingStatus, setPairingStatus] = useState<'waiting' | 'paired'>('waiting');
 
   const [detailScreen, setDetailScreen] = useState<ScreenDevice | null>(null);
+  const [connectScreen, setConnectScreen] = useState<ScreenDevice | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string>('');
   const [editScreen, setEditScreen] = useState<ScreenDevice | null>(null);
+  const [confirmDeleteScreen, setConfirmDeleteScreen] = useState<ScreenDevice | null>(null);
   const [assignTarget, setAssignTarget] = useState<ScreenDevice | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>('');
   const [playlistPreview, setPlaylistPreview] = useState<{
@@ -197,7 +211,11 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
   };
 
   const openAddModal = () => {
-    const nextNum = String(screens.length + 1).padStart(3, '0');
+    const maxId = screens.reduce((max, s) => {
+      const match = s.id.match(/\d+/);
+      return match ? Math.max(max, parseInt(match[0], 10)) : max;
+    }, 0);
+    const nextNum = String(maxId + 1).padStart(3, '0');
     setFormId(`DYPIU-TV-${nextNum}`);
     setFormName('');
     setFormBuilding('Building A');
@@ -293,6 +311,14 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <a
+            href="/CampusCast-TV.apk"
+            download="CampusCast-TV.apk"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#EEE3B0] text-[#290044] type-button hover:bg-[#e5d692] transition-colors whitespace-nowrap"
+          >
+            <Download className="w-4 h-4" />
+            Download TV APK
+          </a>
           <button
             type="button"
             onClick={() => {
@@ -412,7 +438,7 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
                     {scr.deviceType}
                   </td>
                   <td className="py-3 px-4">
-                    <StatusBadge status={scr.isActive ? scr.connectionStatus : 'Archived'} />
+                    <StatusBadge status={scr.isActive ? scr.connectionStatus : 'Standby'} />
                   </td>
                   <td className="py-3 px-4 font-mono tabular-nums text-[#645573] whitespace-nowrap">
                     {scr.lastSeen}
@@ -435,6 +461,17 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
                   </td>
                   <td className="py-3 px-4 text-right whitespace-nowrap">
                     <div className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCopiedKey('');
+                          setConnectScreen(scr);
+                        }}
+                        title="TV Kiosk & Cast Connect"
+                        className="p-1.5 rounded-md text-[#500071] hover:bg-[#EEE3B0]/50 cursor-pointer"
+                      >
+                        <Tv className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => setDetailScreen(scr)}
@@ -474,6 +511,16 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
                       >
                         <Power className="w-3.5 h-3.5" />
                       </button>
+                      {onDeleteScreen && (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteScreen(scr)}
+                          title="Delete Screen"
+                          className="p-1.5 rounded-md text-[#645573] hover:text-rose-700 hover:bg-rose-50 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -898,6 +945,208 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
             </div>
           );
         })()}
+      </Modal>
+
+      {/* Connect Smart TV Display (Option 2 Kiosk + Option 3 Wireless Cast) Modal */}
+      <Modal
+        isOpen={Boolean(connectScreen)}
+        onClose={() => setConnectScreen(null)}
+        title={connectScreen ? `Connect ${connectScreen.id} — ${connectScreen.name}` : 'Connect Display'}
+        subtitle="Launch or configure 24/7 Kiosk mode (Option 2) or Wireless Cast / Screen Mirror (Option 3)"
+        size="lg"
+      >
+        {connectScreen && (() => {
+          const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+          const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+          const kioskUrl = `${origin}/?tv=${encodeURIComponent(connectScreen.id)}&kiosk=1`;
+          const castUrl = `${origin}/?tv=${encodeURIComponent(connectScreen.id)}&cast=1`;
+          const apkUrl = `${origin}/CampusCast-TV.apk`;
+          const manifestUrl = `http://${host}:5000/api/v1/device/${encodeURIComponent(connectScreen.id)}/manifest`;
+
+          const copyUrl = (key: string, value: string) => {
+            navigator.clipboard?.writeText(value).catch(() => {});
+            setCopiedKey(key);
+            window.setTimeout(() => setCopiedKey(''), 2000);
+          };
+
+          return (
+            <div className="space-y-4 text-xs">
+              {/* Standalone Android TV APK */}
+              <div className="p-4 rounded-xl border border-[#500071]/30 bg-[#EEE3B0]/20 space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-[#500071]" />
+                    <span className="font-bold text-[#290044] text-sm">
+                      CampusCast Android TV App (CampusCast-TV.apk)
+                    </span>
+                  </div>
+                  <a
+                    href={apkUrl}
+                    download="CampusCast-TV.apk"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#500071] text-white font-semibold hover:bg-[#8A2A78]"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download APK (3.1 MB)
+                  </a>
+                </div>
+                <p className="text-[#645573]">
+                  Install this standalone APK on your Android/Sansui TV via USB pendrive or <strong>Downloader / Send Files to TV</strong>. On first launch, enter Server URL <code className="font-mono text-[#500071]">{origin}</code> and select <strong>{connectScreen.id}</strong>.
+                </p>
+              </div>
+
+              {/* Option 2: 24/7 Kiosk Mode */}
+              <div className="p-4 rounded-xl border border-[#E8E2EE] bg-[#FAF8FC] space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Tv className="w-4 h-4 text-[#500071]" />
+                    <span className="font-bold text-[#290044] text-sm">
+                      Option 2 · 24/7 TV Kiosk Mode (TV Bro / Fully Kiosk / Built-in TV Browser)
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[#645573]">
+                  Locks directly to <strong>{connectScreen.id}</strong> with no dashboard controls and keeps the screen awake. Triple-tap the bottom-left <strong>DYP</strong> badge on the TV to unlock controls.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={kioskUrl}
+                    className="flex-1 px-3 py-2 rounded-lg border border-[#E8E2EE] bg-white font-mono text-[11px] text-[#290044]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyUrl('kiosk', kioskUrl)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#E8E2EE] bg-white font-semibold text-[#290044] hover:bg-[#EEE3B0]/30 cursor-pointer"
+                  >
+                    {copiedKey === 'kiosk' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedKey === 'kiosk' ? 'Copied' : 'Copy'}
+                  </button>
+                  {onLaunchPlayer && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = connectScreen.id;
+                        setConnectScreen(null);
+                        onLaunchPlayer(id, 'kiosk');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#500071] text-white font-semibold hover:bg-[#8A2A78] cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Launch Kiosk
+                    </button>
+                  )}
+                </div>
+                <div className="pt-1 border-t border-[#E8E2EE]/70 flex items-center justify-between gap-2 text-[11px] text-[#645573]">
+                  <span className="truncate font-mono">Device Manifest API: {manifestUrl}</span>
+                  <button
+                    type="button"
+                    onClick={() => copyUrl('manifest', manifestUrl)}
+                    className="shrink-0 text-[#500071] font-semibold hover:underline cursor-pointer"
+                  >
+                    {copiedKey === 'manifest' ? 'Copied API!' : 'Copy API URL'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Option 3: Wireless Cast / Screen Mirror */}
+              <div className="p-4 rounded-xl border border-[#E8E2EE] bg-white space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <Cast className="w-4 h-4 text-[#8A2A78]" />
+                  <span className="font-bold text-[#290044] text-sm">
+                    Option 3 · Wireless Cast / Screen Mirror (Phone Smart View or Laptop Win + K)
+                  </span>
+                </div>
+                <p className="text-[#645573]">
+                  Opens a clean fullscreen display on your phone or laptop with <strong>Screen Wake Lock</strong> active so mirroring never dims or times out.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={castUrl}
+                    className="flex-1 px-3 py-2 rounded-lg border border-[#E8E2EE] bg-[#FAF8FC] font-mono text-[11px] text-[#290044]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyUrl('cast', castUrl)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#E8E2EE] bg-white font-semibold text-[#290044] hover:bg-[#EEE3B0]/30 cursor-pointer"
+                  >
+                    {copiedKey === 'cast' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedKey === 'cast' ? 'Copied' : 'Copy'}
+                  </button>
+                  {onLaunchPlayer && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = connectScreen.id;
+                        setConnectScreen(null);
+                        onLaunchPlayer(id, 'cast');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#8A2A78] text-white font-semibold hover:bg-[#500071] cursor-pointer"
+                    >
+                      <Cast className="w-3.5 h-3.5" />
+                      Launch Cast View
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Delete Screen Confirmation Modal */}
+      <Modal
+        isOpen={!!confirmDeleteScreen}
+        onClose={() => setConfirmDeleteScreen(null)}
+        title="Delete Screen"
+        subtitle={
+          confirmDeleteScreen
+            ? `${confirmDeleteScreen.id} · ${confirmDeleteScreen.name}`
+            : undefined
+        }
+        size="sm"
+        footer={
+          confirmDeleteScreen && (
+            <>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteScreen(null)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-[#645573] hover:bg-[#FAF8FC] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = confirmDeleteScreen.id;
+                  setConfirmDeleteScreen(null);
+                  onDeleteScreen?.(id);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Screen
+              </button>
+            </>
+          )
+        }
+      >
+        {confirmDeleteScreen && (
+          <div className="space-y-3 text-xs text-[#645573]">
+            <p>
+              Are you sure you want to permanently remove{' '}
+              <span className="font-bold text-[#290044]">
+                {confirmDeleteScreen.name} ({confirmDeleteScreen.id})
+              </span>{' '}
+              from registered screens?
+            </p>
+            <p className="text-[11px] text-[#645573]">
+              This will also remove it from any screen groups and campaign target lists.
+            </p>
+          </div>
+        )}
       </Modal>
     </div>
   );

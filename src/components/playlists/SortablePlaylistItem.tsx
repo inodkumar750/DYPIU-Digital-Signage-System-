@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowDown,
   ArrowUp,
+  Clock,
   GripVertical,
   Repeat,
   Trash2,
@@ -89,9 +90,22 @@ export const SortablePlaylistItem: React.FC<SortablePlaylistItemProps> = ({
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-[#290044] truncate">
-            {media?.title || item.mediaId}
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-xs font-semibold text-[#290044] truncate">
+              {media?.title || item.mediaId}
+            </p>
+            <span
+              className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                (media?.aspectRatio ||
+                  (media?.dimensions?.includes('1080 × 1920') ? '9:16' : '16:9')) === '9:16'
+                  ? 'bg-[#8A2A78]/15 text-[#8A2A78]'
+                  : 'bg-[#500071]/10 text-[#500071]'
+              }`}
+            >
+              {media?.aspectRatio ||
+                (media?.dimensions?.includes('1080 × 1920') ? '9:16' : '16:9')}
+            </span>
+          </div>
           <p className="text-[11px] text-[#645573] truncate">
             {media?.type || 'Media'}
             {media?.category ? ` · ${media.category}` : ''}
@@ -100,19 +114,27 @@ export const SortablePlaylistItem: React.FC<SortablePlaylistItemProps> = ({
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
-        <div className="flex items-center gap-1 mr-1">
+        <div
+          className="flex items-center gap-1.5 mr-1 bg-[#FAF8FC] px-2 py-1 rounded border border-[#E8E2EE]"
+          title="Slide playback duration in seconds"
+        >
+          <Clock className="w-3 h-3 text-[#500071]" />
+          <span className="text-[10px] font-semibold text-[#645573] hidden sm:inline">
+            Slide:
+          </span>
           <input
             type="number"
-            min={3}
+            min={1}
             max={600}
             aria-label="Slide duration in seconds"
             value={item.displayDurationSeconds}
-            onChange={(e) =>
-              onUpdateDuration(Math.max(3, Number(e.target.value) || 5))
-            }
-            className="w-13 px-2 py-1 text-xs font-mono tabular-nums border border-[#E8E2EE] rounded bg-white text-right focus:outline-none focus:border-[#8A2A78]"
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              onUpdateDuration(isNaN(val) ? 1 : Math.max(1, Math.min(600, val)));
+            }}
+            className="w-12 px-1 py-0.5 text-xs font-mono font-bold text-[#500071] border border-[#D7CEE0] rounded bg-white text-right focus:outline-none focus:border-[#8A2A78]"
           />
-          <span className="text-[11px] text-[#645573]">s</span>
+          <span className="text-[10px] text-[#645573] font-mono">s</span>
         </div>
 
         {media?.type === 'Video' && (

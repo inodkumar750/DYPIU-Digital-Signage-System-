@@ -30,6 +30,39 @@ import { NAV_ITEMS, Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { ToastContainer, ToastMessage } from './components/ui/Toast';
 import { Modal } from './components/ui/Modal';
+import {
+  getScreens,
+  createScreen,
+  updateScreenApi,
+  assignScreenPlaylistApi,
+  toggleScreenActiveApi,
+  reconnectScreenApi,
+  deleteScreenApi,
+  getMedia,
+  uploadMediaFile,
+  deleteMediaApi,
+  getPlaylists,
+  savePlaylistApi,
+  deletePlaylistApi,
+  addMediaToPlaylistApi,
+  getCampaigns,
+  saveCampaignApi,
+  updateCampaignStatusApi,
+  deleteCampaignApi,
+  getGroups,
+  saveGroupApi,
+  deleteGroupApi,
+  getPublishJobs,
+  dispatchPublishApi,
+  getUsers,
+  saveUserApi,
+  toggleUserStatusApi,
+  deleteUserApi,
+  verifySessionApi,
+  getSettings,
+  saveSettingsApi,
+} from './api/signageApi';
+import { getEffectiveMenus } from './utils/rbac';
 
 import { DashboardPage } from './pages/DashboardPage';
 import { MediaLibraryPage } from './pages/MediaLibraryPage';
@@ -42,12 +75,45 @@ import { MonitoringPage } from './pages/MonitoringPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { TvPlayerPage } from './pages/TvPlayerPage';
+import { LoginPage } from './pages/LoginPage';
 
 export default function App() {
-  const [activeRoute, setActiveRoute] = useState<PageRoute>('dashboard');
+  const urlParams =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const tvParam = urlParams?.get('tv') || urlParams?.get('screen') || '';
+  const isKioskParam = urlParams?.get('kiosk') === '1' || urlParams?.get('kiosk') === 'true';
+  const isCastParam = urlParams?.get('cast') === '1' || urlParams?.get('cast') === 'true';
+  const isPlayerUrl =
+    typeof window !== 'undefined' &&
+    (Boolean(tvParam) ||
+      window.location.search.includes('tv') ||
+      window.location.search.includes('player') ||
+      window.location.search.includes('kiosk') ||
+      window.location.search.includes('cast') ||
+      window.location.pathname.includes('player'));
+  const [activeRoute, setActiveRoute] = useState<PageRoute>(isPlayerUrl ? 'player' : 'dashboard');
+  const [launchScreenId, setLaunchScreenId] = useState<string>(tvParam || 'DYPIU-TV-001');
+  const [launchKioskMode, setLaunchKioskMode] = useState<boolean>(isKioskParam);
+  const [launchCastMode, setLaunchCastMode] = useState<boolean>(isCastParam);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // Authenticated Admin Session (TV ?player URLs bypass login)
+  const [authToken, setAuthToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem('campuscast_auth_token');
+  });
+  const [authUser, setAuthUser] = useState<UserAccount | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem('campuscast_auth_user');
+      return raw ? (JSON.parse(raw) as UserAccount) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Domain State (Phase 1 Local Prototype State)
   const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>(INITIAL_MEDIA_ASSETS);
@@ -55,7 +121,7 @@ export default function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>(INITIAL_CAMPAIGNS);
   const [screens, setScreens] = useState<ScreenDevice[]>(INITIAL_SCREENS);
   const [groups, setGroups] = useState<ScreenGroup[]>(INITIAL_SCREEN_GROUPS);
-  const [publishJobs, setPublishJobs] = useState<PublishJob[]>(INITIAL_PUBLISH_JOBS);
+  const [publishJobs, setPublishJobs] = useState<PublishJob[]>([]);
   const [users, setUsers] = useState<UserAccount[]>(INITIAL_USERS);
   const [activities, setActivities] = useState<ActivityEvent[]>(INITIAL_ACTIVITIES);
   const [notifications, setNotifications] =
@@ -76,6 +142,45 @@ export default function App() {
     return () => {
       timersRef.current.forEach((t) => window.clearTimeout(t));
     };
+  }, []);
+
+  // Phase 2: Load live records directly from MySQL backend
+  useEffect(() => {
+    async function loadBackendData() {
+      try {
+        const [
+          dbScreens,
+          dbMedia,
+          dbPlaylists,
+          dbCampaigns,
+          dbGroups,
+          dbJobs,
+          dbUsers,
+          dbSettings,
+        ] = await Promise.allSettled([
+          getScreens(),
+          getMedia(),
+          getPlaylists(),
+          getCampaigns(),
+          getGroups(),
+          getPublishJobs(),
+          getUsers(),
+          getSettings(),
+        ]);
+
+        if (dbScreens.status === 'fulfilled') setScreens(dbScreens.value);
+        if (dbMedia.status === 'fulfilled') setMediaAssets(dbMedia.value);
+        if (dbPlaylists.status === 'fulfilled') setPlaylists(dbPlaylists.value);
+        if (dbCampaigns.status === 'fulfilled') setCampaigns(dbCampaigns.value);
+        if (dbGroups.status === 'fulfilled') setGroups(dbGroups.value);
+        if (dbJobs.status === 'fulfilled') setPublishJobs(dbJobs.value);
+        if (dbUsers.status === 'fulfilled') setUsers(dbUsers.value);
+        if (dbSettings.status === 'fulfilled' && dbSettings.value) setSettings(dbSettings.value);
+      } catch (err) {
+        console.warn('Backend connection notice (using local data fallback):', err);
+      }
+    }
+    loadBackendData();
   }, []);
 
   const pushToast = useCallback((text: string, tone: 'info' | 'success' = 'info') => {
@@ -128,10 +233,19 @@ export default function App() {
   };
 
   // Media Handlers
-  const handleAddMedia = (asset: MediaAsset) => {
+  const handleAddMedia = async (asset: MediaAsset, file?: File | null) => {
     setMediaAssets((prev) => [asset, ...prev]);
     appendActivity('upload', `Uploaded ${asset.fileName}`, `${asset.category} · ${asset.fileSize}`);
-    pushToast(`Simulated upload: "${asset.title}" added to local Media Library.`, 'success');
+    pushToast(`Uploading "${asset.title}" to server...`, 'info');
+
+    try {
+      const saved = await uploadMediaFile(asset, file);
+      setMediaAssets((prev) => prev.map((m) => (m.id === asset.id ? saved : m)));
+      pushToast(`Media "${asset.title}" saved to library and database.`, 'success');
+    } catch (err: any) {
+      console.error('API Error:', err);
+      pushToast(`Failed to save media: ${err?.message || 'Upload error'}`, 'error');
+    }
   };
 
   const handleUpdateMedia = (updated: MediaAsset) => {
@@ -142,6 +256,7 @@ export default function App() {
   const handleDeleteMedia = (id: string) => {
     const target = mediaAssets.find((m) => m.id === id);
     setMediaAssets((prev) => prev.filter((m) => m.id !== id));
+    deleteMediaApi(id).catch((err) => console.error('API Error:', err));
     setPlaylists((prev) =>
       prev.map((pl) => {
         if (!pl.items.some((item) => item.mediaId === id)) return pl;
@@ -161,6 +276,7 @@ export default function App() {
   const handleAddToPlaylist = (playlistId: string, mediaId: string) => {
     const media = mediaAssets.find((m) => m.id === mediaId);
     const playlist = playlists.find((p) => p.id === playlistId);
+    addMediaToPlaylistApi(playlistId, mediaId).catch((err) => console.error('API Error:', err));
     setPlaylists((prev) =>
       prev.map((pl) => {
         if (pl.id !== playlistId) return pl;
@@ -196,76 +312,156 @@ export default function App() {
     setPlaylists((prev) =>
       exists ? prev.map((p) => (p.id === pl.id ? pl : p)) : [pl, ...prev]
     );
+    savePlaylistApi(pl).catch((err) => console.error('API Error:', err));
     appendActivity(
       'playlist',
       `${exists ? 'Updated' : 'Created'} playlist "${pl.name}"`,
       `${pl.items.length} media slides configured`
     );
-    pushToast(`Saved playlist "${pl.name}" locally.`, 'success');
+    pushToast(`Saved playlist "${pl.name}" to database.`, 'success');
   };
 
   const handleDeletePlaylist = (id: string) => {
     const target = playlists.find((p) => p.id === id);
     setPlaylists((prev) => prev.filter((p) => p.id !== id));
+    deletePlaylistApi(id).catch((err) => console.error('API Error:', err));
     if (target) pushToast(`Deleted playlist "${target.name}".`);
   };
 
   // Campaign Handlers
   const handleSaveCampaign = (cmp: Campaign) => {
-    setCampaigns((prev) => [cmp, ...prev]);
+    const exists = campaigns.some((c) => c.id === cmp.id);
+    setCampaigns((prev) =>
+      exists ? prev.map((c) => (c.id === cmp.id ? cmp : c)) : [cmp, ...prev]
+    );
+    saveCampaignApi(cmp).catch((err) => console.error('API Error:', err));
     appendActivity(
       'campaign',
-      `Created campaign "${cmp.name}"`,
-      `${cmp.targetScreenIds.length} screens · ${cmp.status}`
+      `${exists ? 'Updated' : 'Created'} campaign "${cmp.name}"`,
+      `${cmp.startDate} → ${cmp.endDate} (${cmp.startTime}–${cmp.endTime}) · ${cmp.status}`
     );
-    pushToast(`Campaign "${cmp.name}" saved as ${cmp.status}.`, 'success');
+    pushToast(
+      `Campaign "${cmp.name}" ${exists ? 'updated' : 'saved'} as ${cmp.status}.`,
+      'success'
+    );
   };
 
   const handleUpdateCampaignStatus = (id: string, status: CampaignStatus) => {
     setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, status } : c)));
+    updateCampaignStatusApi(id, status).catch((err) => console.error('API Error:', err));
     pushToast(`Campaign status changed to ${status}.`);
   };
 
   const handleDeleteCampaign = (id: string) => {
     setCampaigns((prev) => prev.filter((c) => c.id !== id));
+    deleteCampaignApi(id).catch((err) => console.error('API Error:', err));
     pushToast('Campaign removed from schedule.');
   };
 
   // Screen Handlers
-  const handleAddScreen = (scr: ScreenDevice) => {
+  const handleAddScreen = async (scr: ScreenDevice) => {
     setScreens((prev) => [scr, ...prev]);
-    appendActivity('screen', `Registered ${scr.id} (${scr.name})`, `${scr.building} · ${scr.floor}`);
-    pushToast(`Added screen ${scr.id} to campus inventory.`, 'success');
+    try {
+      await createScreen(scr);
+      appendActivity('screen', `Registered ${scr.id} (${scr.name})`, `${scr.building} · ${scr.floor}`);
+      pushToast(`Added screen ${scr.id} to database.`, 'success');
+    } catch (err: any) {
+      console.error('API Error:', err);
+      pushToast(`Notice: saved locally. (${err.message || 'offline'})`, 'info');
+    }
   };
 
-  const handleUpdateScreen = (updated: ScreenDevice) => {
+  const handleUpdateScreen = async (updated: ScreenDevice) => {
     setScreens((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    pushToast(`Updated ${updated.id} (${updated.name}).`, 'success');
+    try {
+      await updateScreenApi(updated);
+      pushToast(`Saved ${updated.id} (${updated.name}) to database.`, 'success');
+    } catch (err: any) {
+      console.error('API Error:', err);
+      pushToast(`Notice: updated locally. (${err.message || 'offline'})`, 'info');
+    }
+  };
+
+  const handleAssignScreenToPlaylist = async (playlistId: string, targetScreenIds: string[]) => {
+    setScreens((prev) =>
+      prev.map((s) => {
+        if (targetScreenIds.includes(s.id)) {
+          return { ...s, assignedPlaylistId: playlistId };
+        } else if (s.assignedPlaylistId === playlistId) {
+          return { ...s, assignedPlaylistId: null };
+        }
+        return s;
+      })
+    );
+
+    for (const scr of screens) {
+      const willBeAssigned = targetScreenIds.includes(scr.id);
+      const isCurrentlyAssigned = scr.assignedPlaylistId === playlistId;
+      if (willBeAssigned !== isCurrentlyAssigned) {
+        assignScreenPlaylistApi(scr.id, willBeAssigned ? playlistId : null).catch(console.error);
+      }
+    }
+    pushToast(`Updated TV display assignments in database.`, 'success');
   };
 
   const handleToggleActiveScreen = (id: string) => {
     setScreens((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, isActive: !s.isActive } : s))
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        const nextActive = !s.isActive;
+        return {
+          ...s,
+          isActive: nextActive,
+          connectionStatus: nextActive ? s.connectionStatus : 'Offline',
+          lastSeen: nextActive ? s.lastSeen : 'Turned Off (Standby)',
+        };
+      })
     );
-    pushToast(`Updated active state for ${id}.`);
+    toggleScreenActiveApi(id).catch((err) => console.error('API Error:', err));
+    pushToast(`Updated power state for ${id}.`);
   };
 
-  const handleSimulateReconnect = (id: string) => {
-    setScreens((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              connectionStatus: 'Online',
-              lastSeen: 'Just now',
-              lastHeartbeat: '2026-11-23 09:37:20',
-              playbackError: null,
-            }
-          : s
-      )
+  const handleDeleteScreen = async (id: string) => {
+    const target = screens.find((s) => s.id === id);
+    setScreens((prev) => prev.filter((s) => s.id !== id));
+    setGroups((prev) =>
+      prev.map((g) => ({
+        ...g,
+        screenIds: g.screenIds.filter((sid) => sid !== id),
+      }))
     );
-    appendActivity('screen', `Reconnected ${id}`, 'Simulated heartbeat restored');
-    pushToast(`Simulated reconnect: ${id} is now Online.`, 'success');
+    setCampaigns((prev) =>
+      prev.map((c) => ({
+        ...c,
+        targetScreenIds: c.targetScreenIds.filter((sid) => sid !== id),
+      }))
+    );
+    try {
+      await deleteScreenApi(id);
+      appendActivity('screen', `Deleted screen ${id}`, target ? target.name : 'Removed display');
+      pushToast(`Deleted screen ${id}.`, 'success');
+    } catch (err) {
+      console.error('API Error:', err);
+      pushToast(`Failed to delete screen ${id} from server.`, 'info');
+      refreshScreensLive();
+    }
+  };
+
+  const handleSimulateReconnect = async (id: string) => {
+    setScreens((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, isActive: true, playbackError: null } : s))
+    );
+    try {
+      await reconnectScreenApi(id);
+      await refreshScreensLive();
+    } catch (err) {
+      console.error('API Error:', err);
+    }
+    appendActivity('screen', `Sent wake signal to ${id}`, 'Waiting for physical TV heartbeat');
+    pushToast(
+      `Wake/Reconnect signal sent to ${id}. It will turn Online automatically once the physical TV responds.`,
+      'info'
+    );
   };
 
   // Group Handlers
@@ -274,11 +470,13 @@ export default function App() {
     setGroups((prev) =>
       exists ? prev.map((g) => (g.id === grp.id ? grp : g)) : [grp, ...prev]
     );
+    saveGroupApi(grp).catch((err) => console.error('API Error:', err));
     pushToast(`Saved screen group "${grp.name}".`, 'success');
   };
 
   const handleDeleteGroup = (id: string) => {
     setGroups((prev) => prev.filter((g) => g.id !== id));
+    deleteGroupApi(id).catch((err) => console.error('API Error:', err));
     pushToast('Screen group removed.');
   };
 
@@ -350,6 +548,7 @@ export default function App() {
     );
     pushToast(`Queued simulated publish job for "${campaign.name}".`);
     runSimulatedPublishProgress(jobId, campaign.targetScreenIds);
+    dispatchPublishApi(campaign, pl?.name || 'Default Playlist').catch((err) => console.error('API Error:', err));
   };
 
   const handleRetryPublishJob = (jobId: string) => {
@@ -367,15 +566,46 @@ export default function App() {
   };
 
   // Users & Settings Handlers
-  const handleSaveUser = (usr: UserAccount) => {
+  const handleSaveUser = async (
+    usr: UserAccount
+  ): Promise<{ success: boolean; error?: string }> => {
+    const res = await saveUserApi(usr).catch((err) => ({
+      success: false,
+      error: err?.message || 'Network error',
+    }));
+    if (!res.success) {
+      return { success: false, error: res.error || 'Could not save user account.' };
+    }
+
     const exists = users.some((u) => u.id === usr.id);
+    const { password: _omit, ...cleanUser } = usr;
     setUsers((prev) =>
-      exists ? prev.map((u) => (u.id === usr.id ? usr : u)) : [usr, ...prev]
+      exists ? prev.map((u) => (u.id === usr.id ? cleanUser : u)) : [cleanUser, ...prev]
     );
-    pushToast(`Saved administrator "${usr.name}" (${usr.role}).`, 'success');
+    // Sync from MySQL so timestamps & defaults match database
+    getUsers()
+      .then((fresh) => {
+        if (Array.isArray(fresh) && fresh.length > 0) setUsers(fresh);
+      })
+      .catch(() => {});
+
+    if (authUser && authUser.id === usr.id) {
+      const updatedMe = { ...authUser, ...cleanUser };
+      setAuthUser(updatedMe);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('campuscast_auth_user', JSON.stringify(updatedMe));
+      }
+    }
+
+    pushToast(`Saved user "${usr.name}" (${usr.role}) to MySQL database.`, 'success');
+    return { success: true };
   };
 
   const handleToggleUserStatus = (id: string) => {
+    if (authUser?.id === id) {
+      pushToast('Cannot suspend your own active signed-in session.');
+      return;
+    }
     setUsers((prev) =>
       prev.map((u) =>
         u.id === id
@@ -383,23 +613,198 @@ export default function App() {
           : u
       )
     );
-    pushToast('Updated user account status.');
+    toggleUserStatusApi(id).catch((err) => console.error('API Error:', err));
+    pushToast('Updated user account status in database.');
   };
+
+  const handleDeleteUser = (id: string) => {
+    if (authUser?.id === id) {
+      pushToast('Cannot delete your own active signed-in account.');
+      return;
+    }
+    setUsers((prev) => prev.filter((u) => u.id !== id));
+    deleteUserApi(id).catch((err) => console.error('API Error:', err));
+    pushToast('Deleted user account from database.');
+  };
+
+  const handleLoginSuccess = (token: string, user: UserAccount) => {
+    setAuthToken(token);
+    setAuthUser(user);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('campuscast_auth_token', token);
+      window.localStorage.setItem('campuscast_auth_user', JSON.stringify(user));
+    }
+    const menus = getEffectiveMenus(user.role, user.allowedMenus);
+    setActiveRoute(menus[0] || 'dashboard');
+    getUsers()
+      .then((fresh) => {
+        if (Array.isArray(fresh) && fresh.length > 0) setUsers(fresh);
+      })
+      .catch(() => {});
+    pushToast(`Welcome back, ${user.name} (${user.role})`, 'success');
+  };
+
+  const handleLogout = useCallback(
+    (reason?: string) => {
+      setAuthToken(null);
+      setAuthUser(null);
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('campuscast_auth_token');
+        window.localStorage.removeItem('campuscast_auth_user');
+      }
+      if (reason) pushToast(reason);
+    },
+    [pushToast]
+  );
+
+  // Real-time session validation & RBAC permission sync every 5 seconds
+  useEffect(() => {
+    if (!authToken || isPlayerUrl) return;
+    let cancelled = false;
+
+    const validateLiveSession = async () => {
+      try {
+        const res = await verifySessionApi(authToken);
+        if (cancelled) return;
+        if (!res.success && (res.status === 401 || res.status === 403)) {
+          handleLogout(res.error || 'Your session is no longer active.');
+          return;
+        }
+        if (res.success && res.user) {
+          setAuthUser((prev) => {
+            if (prev && JSON.stringify(prev) === JSON.stringify(res.user)) return prev;
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem('campuscast_auth_user', JSON.stringify(res.user));
+            }
+            return res.user!;
+          });
+        }
+      } catch {
+        // Keep current session cleanly on transient network hiccup
+      }
+    };
+
+    validateLiveSession();
+    const timer = window.setInterval(validateLiveSession, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authToken, isPlayerUrl, handleLogout]);
+
+  const refreshScreensLive = useCallback(async () => {
+    try {
+      const latest = await getScreens();
+      if (Array.isArray(latest)) {
+        setScreens((prev) =>
+          JSON.stringify(prev) === JSON.stringify(latest) ? prev : latest
+        );
+      }
+    } catch {
+      // Ignore transient network errors
+    }
+  }, []);
+
+  // Poll live screen heartbeats & TV ON/OFF state every 5s in Dashboard / Monitoring / Screen Management
+  useEffect(() => {
+    if (!authUser || activeRoute === 'player') return;
+    refreshScreensLive();
+    const timer = window.setInterval(refreshScreensLive, 5000);
+    return () => window.clearInterval(timer);
+  }, [authUser, activeRoute, refreshScreensLive]);
+
+  const allowedMenus = React.useMemo<PageRoute[]>(
+    () => (authUser ? getEffectiveMenus(authUser.role, authUser.allowedMenus) : []),
+    [authUser]
+  );
+
+  useEffect(() => {
+    if (!authUser || activeRoute === 'player') return;
+    if (allowedMenus.length > 0 && !allowedMenus.includes(activeRoute)) {
+      setActiveRoute(allowedMenus[0]);
+    }
+  }, [authUser, activeRoute, allowedMenus]);
+
+  const navigateGuarded = useCallback(
+    (route: PageRoute) => {
+      if (route === 'player') {
+        setActiveRoute('player');
+        return;
+      }
+      if (authUser && !allowedMenus.includes(route)) {
+        pushToast(`Access restricted: "${route}" is not enabled for your role.`);
+        return;
+      }
+      setActiveRoute(route);
+    },
+    [authUser, allowedMenus, pushToast]
+  );
 
   const handleSaveSettings = (updated: UniversitySettings) => {
     setSettings(updated);
-    pushToast('Saved platform settings to local prototype session.', 'success');
+    saveSettingsApi(updated).catch((err) => console.error('API Error:', err));
+    pushToast('Saved platform settings to MySQL database.', 'success');
   };
 
   const currentNav = NAV_ITEMS.find((item) => item.id === activeRoute) || NAV_ITEMS[0];
   const offlineCount = screens.filter((s) => s.connectionStatus === 'Offline').length;
   const totalMediaCount = ARCHIVED_LIBRARY_OFFSET + mediaAssets.length;
 
+  if (activeRoute === 'player') {
+    return (
+      <TvPlayerPage
+        screens={screens}
+        playlists={playlists}
+        mediaAssets={mediaAssets}
+        campaigns={campaigns}
+        groups={groups}
+        initialScreenId={launchScreenId}
+        initialKioskMode={launchKioskMode}
+        initialCastMode={launchCastMode}
+        showTvTicker={settings.showTvTicker !== false}
+        onToggleTvTicker={(show) =>
+          setSettings((prev) => ({ ...prev, showTvTicker: show }))
+        }
+        onAssignScreenPlaylist={(screenId, playlistId) => {
+          setScreens((prev) =>
+            prev.map((s) =>
+              s.id === screenId ? { ...s, assignedPlaylistId: playlistId } : s
+            )
+          );
+        }}
+        onExit={() => {
+          setLaunchKioskMode(false);
+          setLaunchCastMode(false);
+          if (typeof window !== 'undefined' && window.location.search) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+          setActiveRoute(allowedMenus[0] || 'dashboard');
+        }}
+      />
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <>
+        <LoginPage
+          onLoginSuccess={handleLoginSuccess}
+          onOpenTvMode={() => setActiveRoute('player')}
+        />
+        <ToastContainer
+          toasts={toasts}
+          onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen flex bg-[#FAF8FC] text-[#1A1025]">
       <Sidebar
         activeRoute={activeRoute}
-        onNavigate={setActiveRoute}
+        onNavigate={navigateGuarded}
+        allowedMenus={allowedMenus}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
         mobileOpen={mobileSidebarOpen}
@@ -412,7 +817,7 @@ export default function App() {
           pageTitle={currentNav.label}
           breadcrumbParent="Campus Signage"
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
-          onNavigate={setActiveRoute}
+          onNavigate={navigateGuarded}
           notifications={notifications}
           onMarkAllRead={() =>
             setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))
@@ -422,10 +827,13 @@ export default function App() {
           mediaAssets={mediaAssets}
           playlists={playlists}
           onOpenHelp={() => setHelpOpen(true)}
+          currentUser={authUser}
+          allowedMenus={allowedMenus}
+          onLogout={() => handleLogout('You have signed out cleanly.')}
         />
 
         <main className="flex-1 p-4 sm:p-6 max-w-[1480px] w-full mx-auto">
-          {activeRoute === 'dashboard' && (
+          {activeRoute === 'dashboard' && allowedMenus.includes('dashboard') && (
             <DashboardPage
               screens={screens}
               campaigns={campaigns}
@@ -433,12 +841,12 @@ export default function App() {
               mediaAssets={mediaAssets}
               totalMediaCount={totalMediaCount}
               activities={activities}
-              onNavigate={setActiveRoute}
+              onNavigate={navigateGuarded}
               onQuickAction={handleQuickAction}
             />
           )}
 
-          {activeRoute === 'media' && (
+          {activeRoute === 'media' && allowedMenus.includes('media') && (
             <MediaLibraryPage
               mediaAssets={mediaAssets}
               playlists={playlists}
@@ -450,17 +858,19 @@ export default function App() {
             />
           )}
 
-          {activeRoute === 'playlists' && (
+          {activeRoute === 'playlists' && allowedMenus.includes('playlists') && (
             <PlaylistsPage
               playlists={playlists}
+              screens={screens}
               mediaAssets={mediaAssets}
               openCreateSignal={createPlaylistSignal}
               onSavePlaylist={handleSavePlaylist}
               onDeletePlaylist={handleDeletePlaylist}
+              onAssignScreens={handleAssignScreenToPlaylist}
             />
           )}
 
-          {activeRoute === 'campaigns' && (
+          {activeRoute === 'campaigns' && allowedMenus.includes('campaigns') && (
             <CampaignsPage
               campaigns={campaigns}
               playlists={playlists}
@@ -473,7 +883,7 @@ export default function App() {
             />
           )}
 
-          {activeRoute === 'screens' && (
+          {activeRoute === 'screens' && allowedMenus.includes('screens') && (
             <ScreenManagementPage
               screens={screens}
               playlists={playlists}
@@ -482,10 +892,17 @@ export default function App() {
               onAddScreen={handleAddScreen}
               onUpdateScreen={handleUpdateScreen}
               onToggleActiveScreen={handleToggleActiveScreen}
+              onDeleteScreen={handleDeleteScreen}
+              onLaunchPlayer={(screenId, mode) => {
+                setLaunchScreenId(screenId);
+                setLaunchKioskMode(mode === 'kiosk');
+                setLaunchCastMode(mode === 'cast');
+                setActiveRoute('player');
+              }}
             />
           )}
 
-          {activeRoute === 'groups' && (
+          {activeRoute === 'groups' && allowedMenus.includes('groups') && (
             <ScreenGroupsPage
               groups={groups}
               screens={screens}
@@ -495,7 +912,7 @@ export default function App() {
             />
           )}
 
-          {activeRoute === 'publishing' && (
+          {activeRoute === 'publishing' && allowedMenus.includes('publishing') && (
             <PublishingPage
               publishJobs={publishJobs}
               campaigns={campaigns}
@@ -506,16 +923,20 @@ export default function App() {
             />
           )}
 
-          {activeRoute === 'monitoring' && (
+          {activeRoute === 'monitoring' && allowedMenus.includes('monitoring') && (
             <MonitoringPage
               screens={screens}
               playlists={playlists}
               mediaAssets={mediaAssets}
               onSimulateReconnect={handleSimulateReconnect}
+              onPollHeartbeats={async () => {
+                await refreshScreensLive();
+                pushToast('Refreshed live TV heartbeats from MySQL.', 'success');
+              }}
             />
           )}
 
-          {activeRoute === 'reports' && (
+          {activeRoute === 'reports' && allowedMenus.includes('reports') && (
             <ReportsPage
               campaigns={campaigns}
               screens={screens}
@@ -525,15 +946,17 @@ export default function App() {
             />
           )}
 
-          {activeRoute === 'users' && (
+          {activeRoute === 'users' && allowedMenus.includes('users') && (
             <UserManagementPage
               users={users}
+              currentUserId={authUser.id}
               onSaveUser={handleSaveUser}
               onToggleUserStatus={handleToggleUserStatus}
+              onDeleteUser={handleDeleteUser}
             />
           )}
 
-          {activeRoute === 'settings' && (
+          {activeRoute === 'settings' && allowedMenus.includes('settings') && (
             <SettingsPage
               settings={settings}
               onSaveSettings={handleSaveSettings}

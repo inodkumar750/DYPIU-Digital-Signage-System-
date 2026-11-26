@@ -140,7 +140,14 @@ export const PublishingPage: React.FC<PublishingPageProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1ECF6] text-xs">
-              {filteredJobs.map((job) => (
+              {filteredJobs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-sm text-[#645573]">
+                    No publish records found. When campaigns are published to campus displays, live dispatch jobs will appear here.
+                  </td>
+                </tr>
+              ) : (
+                filteredJobs.map((job) => (
                 <tr key={job.id} className="hover:bg-[#FAF8FC] transition-colors">
                   <td className="py-3.5 px-4">
                     <p className="font-semibold text-[#290044]">{job.campaignName}</p>
@@ -213,7 +220,7 @@ export const PublishingPage: React.FC<PublishingPageProps> = ({
                     )}
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

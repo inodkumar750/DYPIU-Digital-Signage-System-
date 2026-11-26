@@ -8,12 +8,15 @@ import {
   Image as ImageIcon,
   List,
   ListPlus,
+  Monitor,
   MoreVertical,
   Search,
+  Smartphone,
   Trash2,
   Upload,
 } from 'lucide-react';
 import {
+  MediaAspectRatio,
   MediaAsset,
   MediaCategory,
   MediaType,
@@ -36,10 +39,80 @@ interface MediaLibraryPageProps {
   mediaAssets: MediaAsset[];
   playlists: Playlist[];
   openUploadSignal: number;
-  onAddMedia: (asset: MediaAsset) => void;
+  onAddMedia: (asset: MediaAsset, file?: File | null) => void;
   onUpdateMedia: (asset: MediaAsset) => void;
   onDeleteMedia: (id: string) => void;
   onAddToPlaylist: (playlistId: string, mediaId: string) => void;
+}
+
+// 4K Signage Image Optimizer for Instant TV (16:9) & Standy (9:16) Rendering
+async function optimizeSignageImage(
+  file: File,
+  aspectRatio: MediaAspectRatio = '16:9'
+): Promise<File> {
+  if (!file.type.startsWith('image/')) return file;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const originalWidth = img.naturalWidth || img.width;
+      const originalHeight = img.naturalHeight || img.height;
+      const MAX_WIDTH = aspectRatio === '9:16' ? 2160 : 3840; // 4K UHD TV / Standy Standard
+      const MAX_HEIGHT = aspectRatio === '9:16' ? 3840 : 2160;
+
+      const isOversized = originalWidth > MAX_WIDTH || originalHeight > MAX_HEIGHT;
+      const isHeavy = file.size > 350 * 1024 || file.type === 'image/png';
+
+      if (!isOversized && !isHeavy) {
+        resolve(file);
+        return;
+      }
+
+      let targetWidth = originalWidth;
+      let targetHeight = originalHeight;
+
+      if (isOversized) {
+        if (originalWidth / MAX_WIDTH > originalHeight / MAX_HEIGHT) {
+          targetHeight = Math.round((originalHeight * MAX_WIDTH) / originalWidth);
+          targetWidth = MAX_WIDTH;
+        } else {
+          targetWidth = Math.round((originalWidth * MAX_HEIGHT) / originalHeight);
+          targetHeight = MAX_HEIGHT;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob || blob.size >= file.size) {
+            resolve(file);
+            return;
+          }
+          const cleanName = file.name.replace(/\.[^/.]+$/, '') + '.jpg';
+          const optimized = new File([blob], cleanName, { type: 'image/jpeg' });
+          resolve(optimized);
+        },
+        'image/jpeg',
+        0.92
+      );
+    };
+    img.onerror = () => resolve(file);
+    img.src = url;
+  });
 }
 
 export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
@@ -88,9 +161,12 @@ export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
 
   // Upload Form State
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadFileName, setUploadFileName] = useState('');
   const [uploadType, setUploadType] = useState<MediaType>('Image');
+  const [uploadAspectRatio, setUploadAspectRatio] = useState<MediaAspectRatio>('16:9');
+  const [ratioManuallyChosen, setRatioManuallyChosen] = useState(false);
   const [uploadCategory, setUploadCategory] = useState<MediaCategory>('University Admissions');
   const [uploadDuration, setUploadDuration] = useState('30');
   const [uploadDescription, setUploadDescription] = useState('');
@@ -109,30 +185,74 @@ export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
     }
   }, [openUploadSignal]);
 
-  const handleFileChosen = (file: File) => {
+  const detectImageOrientation = (file: File): Promise<MediaAspectRatio | null> => {
+    if (!file.type.startsWith('image/')) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img.naturalHeight > img.naturalWidth ? '9:16' : '16:9');
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      img.src = url;
+    });
+  };
+
+  const handleFileChosen = async (file: File) => {
+    const isVid = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
+
+    // Max limits: 20 MB for Images, 30 MB for Videos
+    if (!isVid && file.size > 20 * 1024 * 1024) {
+      setUploadError(`Image size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 20 MB maximum limit.`);
+      return;
+    }
+    if (isVid && file.size > 30 * 1024 * 1024) {
+      setUploadError(`Video size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 30 MB maximum limit.`);
+      return;
+    }
+
+    setUploadError('');
     setUploadFileName(file.name);
     if (!uploadTitle) {
       const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
       setUploadTitle(cleanName);
     }
-    const isVid = file.type.startsWith('video/');
     setUploadType(isVid ? 'Video' : 'Image');
-    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+
+    let targetRatio = uploadAspectRatio;
+    if (!isVid && !ratioManuallyChosen) {
+      const detected = await detectImageOrientation(file);
+      if (detected) {
+        targetRatio = detected;
+        setUploadAspectRatio(detected);
+      }
+    }
+
+    // Auto-optimize images to crisp 4K UHD so they display INSTANTLY on Smart TVs & Standys
+    let finalFile = file;
+    if (!isVid) {
+      finalFile = await optimizeSignageImage(file, targetRatio);
+    }
+
+    setSelectedFile(finalFile);
+    const sizeMb = (finalFile.size / (1024 * 1024)).toFixed(1);
     setUploadFileSize(`${Math.max(0.1, Number(sizeMb))} MB`);
 
-    if (file.type.startsWith('image/')) {
-      const objUrl = URL.createObjectURL(file);
-      setUploadPreviewUrl(objUrl);
-    } else {
-      setUploadPreviewUrl(undefined);
-    }
-    setUploadError('');
+    const objUrl = URL.createObjectURL(finalFile);
+    setUploadPreviewUrl(objUrl);
   };
 
   const resetUploadForm = () => {
+    setSelectedFile(null);
     setUploadTitle('');
     setUploadFileName('');
     setUploadType('Image');
+    setUploadAspectRatio('16:9');
+    setRatioManuallyChosen(false);
     setUploadCategory('University Admissions');
     setUploadDuration('30');
     setUploadDescription('');
@@ -155,16 +275,18 @@ export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
       title: uploadTitle.trim(),
       type: uploadType,
       category: uploadCategory,
-      uploadDate: '2026-11-23',
+      uploadDate: new Date().toISOString().substring(0, 10),
       durationSeconds: uploadType === 'Video' ? Math.max(5, Number(uploadDuration) || 30) : undefined,
       fileSize: uploadFileSize,
-      dimensions: '1920 × 1080',
+      dimensions: uploadAspectRatio === '9:16' ? '1080 × 1920' : '1920 × 1080',
+      aspectRatio: uploadAspectRatio,
       thumbnailUrl: uploadPreviewUrl,
+      fileUrl: uploadPreviewUrl,
       accentTone: uploadType === 'Video' ? 'secondary' : 'primary',
       uploadedBy: 'Vinod Kumar Jain',
       description: uploadDescription.trim() || 'Uploaded via CampusCast Media Library.',
     };
-    onAddMedia(newAsset);
+    onAddMedia(newAsset, selectedFile);
     setUploadOpen(false);
     resetUploadForm();
   };
@@ -510,13 +632,26 @@ export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
                     <span className="font-mono tabular-nums shrink-0">{asset.fileSize}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 tabular-nums">
-                    <span>
-                      {asset.type}
-                      {asset.type === 'Video' && asset.durationSeconds
-                        ? ` · ${formatDuration(asset.durationSeconds)}`
-                        : ` · ${asset.dimensions}`}
+                    <span className="flex items-center gap-1.5 truncate">
+                      <span>
+                        {asset.type}
+                        {asset.type === 'Video' && asset.durationSeconds
+                          ? ` · ${formatDuration(asset.durationSeconds)}`
+                          : ` · ${asset.dimensions}`}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold shrink-0 ${
+                          (asset.aspectRatio ||
+                            (asset.dimensions?.includes('1080 × 1920') ? '9:16' : '16:9')) === '9:16'
+                            ? 'bg-[#8A2A78]/15 text-[#8A2A78]'
+                            : 'bg-[#500071]/10 text-[#500071]'
+                        }`}
+                      >
+                        {asset.aspectRatio ||
+                          (asset.dimensions?.includes('1080 × 1920') ? '9:16' : '16:9')}
+                      </span>
                     </span>
-                    <span className="font-mono">{asset.uploadDate}</span>
+                    <span className="font-mono shrink-0">{asset.uploadDate}</span>
                   </div>
                 </div>
               </div>
@@ -636,12 +771,30 @@ export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
           resetUploadForm();
         }}
         title="Upload Media Asset"
-        subtitle="Simulated local upload — select an image or video file and configure campus metadata"
+        subtitle="Select an image or video file to upload directly to CampusCast storage and MySQL"
         size="lg"
       >
         <form onSubmit={handleUploadSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-[#290044] inline-flex items-center gap-1.5">
+                  {uploadAspectRatio === '9:16' ? (
+                    <>
+                      <Smartphone className="w-3.5 h-3.5 text-[#8A2A78]" />
+                      Standy Preview (9:16 Portrait)
+                    </>
+                  ) : (
+                    <>
+                      <Monitor className="w-3.5 h-3.5 text-[#500071]" />
+                      TV Preview (16:9 Landscape)
+                    </>
+                  )}
+                </span>
+                <span className="font-mono text-[#645573]">
+                  {uploadAspectRatio === '9:16' ? '1080 × 1920' : '1920 × 1080'}
+                </span>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -652,32 +805,126 @@ export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
                 }}
                 className="hidden"
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full aspect-video rounded-xl border-2 border-dashed border-[#D7CEE0] hover:border-[#8A2A78] bg-[#FAF8FC] flex flex-col items-center justify-center p-4 overflow-hidden transition-colors"
+              <div
+                className={`rounded-xl border border-[#E8E2EE] p-3 flex flex-col items-center justify-center transition-colors ${
+                  uploadPreviewUrl ? 'bg-[#1A1025]' : 'bg-[#FAF8FC]'
+                }`}
               >
-                {uploadPreviewUrl ? (
-                  <img
-                    src={uploadPreviewUrl}
-                    alt="Selected file preview"
-                    className="w-full h-full object-cover rounded-lg"
-                  />
-                ) : (
-                  <>
-                    <Upload className="w-7 h-7 text-[#500071] mb-2" />
-                    <span className="text-xs font-semibold text-[#290044]">
-                      {uploadFileName || 'Choose Image or Video File'}
-                    </span>
-                    <span className="text-[11px] text-[#645573] mt-1">
-                      16:9 recommended · Max 250 MB
-                    </span>
-                  </>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`rounded-lg border-2 border-dashed transition-all flex flex-col items-center justify-center overflow-hidden ${
+                    uploadAspectRatio === '9:16'
+                      ? 'w-[175px] aspect-[9/16]'
+                      : 'w-full aspect-video'
+                  } ${
+                    uploadPreviewUrl
+                      ? 'border-[#8A2A78]/60 bg-[#290044] p-0'
+                      : 'border-[#D7CEE0] hover:border-[#8A2A78] bg-white/80 p-4'
+                  }`}
+                >
+                  {uploadPreviewUrl ? (
+                    uploadType === 'Video' ? (
+                      <video
+                        src={uploadPreviewUrl}
+                        controls
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                    ) : (
+                      <img
+                        src={uploadPreviewUrl}
+                        alt="Selected file preview"
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                    )
+                  ) : (
+                    <>
+                      <Upload className="w-6 h-6 text-[#500071] mb-2" />
+                      <span className="text-xs font-semibold text-[#290044] text-center">
+                        {uploadFileName || 'Choose Image or Video File'}
+                      </span>
+                      <span className="text-[11px] text-[#645573] mt-1 text-center">
+                        {uploadAspectRatio === '9:16'
+                          ? 'Vertical Standy · 9:16 · Max 20/30 MB'
+                          : 'Landscape TV · 16:9 · Max 20/30 MB'}
+                      </span>
+                    </>
+                  )}
+                </button>
+                {uploadPreviewUrl && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="mt-2 text-[11px] font-semibold text-[#EEE3B0] hover:underline"
+                  >
+                    Change file ({uploadFileName})
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
 
             <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-[#290044] mb-1">
+                  Target Screen Ratio *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadAspectRatio('16:9');
+                      setRatioManuallyChosen(true);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
+                      uploadAspectRatio === '16:9'
+                        ? 'bg-[#500071] text-white border-[#500071] shadow-xs'
+                        : 'bg-[#FAF8FC] text-[#290044] border-[#E8E2EE] hover:border-[#8A2A78]'
+                    }`}
+                  >
+                    <Monitor className="w-4 h-4 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="block text-xs font-semibold leading-tight">
+                        TV Landscape
+                      </span>
+                      <span
+                        className={`block text-[10px] font-mono ${
+                          uploadAspectRatio === '16:9' ? 'text-[#EEE3B0]' : 'text-[#645573]'
+                        }`}
+                      >
+                        16:9 · 1920×1080
+                      </span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadAspectRatio('9:16');
+                      setRatioManuallyChosen(true);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
+                      uploadAspectRatio === '9:16'
+                        ? 'bg-[#500071] text-white border-[#500071] shadow-xs'
+                        : 'bg-[#FAF8FC] text-[#290044] border-[#E8E2EE] hover:border-[#8A2A78]'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="block text-xs font-semibold leading-tight">
+                        Standy Portrait
+                      </span>
+                      <span
+                        className={`block text-[10px] font-mono ${
+                          uploadAspectRatio === '9:16' ? 'text-[#EEE3B0]' : 'text-[#645573]'
+                        }`}
+                      >
+                        9:16 · 1080×1920
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-[#290044] mb-1">
                   Display Title *
@@ -793,13 +1040,26 @@ export const MediaLibraryPage: React.FC<MediaLibraryPageProps> = ({
       >
         {previewAsset && (
           <div className="space-y-4">
-            <MediaThumbnail
-              src={previewAsset.thumbnailUrl}
-              alt={previewAsset.title}
-              type={previewAsset.type}
-              durationSeconds={previewAsset.durationSeconds}
-              accentTone={previewAsset.accentTone}
-            />
+            <div
+              className={
+                (previewAsset.aspectRatio ||
+                  (previewAsset.dimensions?.includes('1080 × 1920') ? '9:16' : '16:9')) === '9:16'
+                  ? 'max-w-[260px] mx-auto'
+                  : ''
+              }
+            >
+              <MediaThumbnail
+                src={previewAsset.thumbnailUrl}
+                alt={previewAsset.title}
+                type={previewAsset.type}
+                durationSeconds={previewAsset.durationSeconds}
+                aspectRatio={
+                  previewAsset.aspectRatio ||
+                  (previewAsset.dimensions?.includes('1080 × 1920') ? '9:16' : '16:9')
+                }
+                accentTone={previewAsset.accentTone}
+              />
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-[#FAF8FC] border border-[#E8E2EE] text-xs">
               <div>
                 <p className="text-[#645573]">Category</p>

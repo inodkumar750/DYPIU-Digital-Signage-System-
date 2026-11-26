@@ -9,7 +9,8 @@ export type PageRoute =
   | 'monitoring'
   | 'reports'
   | 'users'
-  | 'settings';
+  | 'settings'
+  | 'player';
 
 export type MediaCategory =
   | 'University Admissions'
@@ -20,6 +21,7 @@ export type MediaCategory =
   | 'Announcements';
 
 export type MediaType = 'Image' | 'Video';
+export type MediaAspectRatio = '16:9' | '9:16';
 
 export interface MediaAsset {
   id: string;
@@ -31,7 +33,9 @@ export interface MediaAsset {
   durationSeconds?: number; // for videos or default slide duration
   fileSize: string;
   dimensions: string;
+  aspectRatio?: MediaAspectRatio;
   thumbnailUrl?: string;
+  fileUrl?: string;
   accentTone?: 'primary' | 'secondary' | 'accent' | 'cream';
   uploadedBy: string;
   description?: string;
@@ -144,6 +148,8 @@ export interface UserAccount {
   email: string;
   department: string;
   role: UserRole;
+  allowedMenus?: PageRoute[];
+  password?: string;
   status: UserStatus;
   lastLogin: string;
   avatarUrl?: string;
@@ -171,6 +177,7 @@ export interface UniversitySettings {
   dateFormat: string;
   defaultImageDurationSeconds: number;
   defaultTransition: 'Fade' | 'Slide' | 'Cut';
+  showTvTicker?: boolean;
   maxUploadSizeMb: number;
   autoTranscodeVideo: boolean;
   notifyOfflineMinutes: number;

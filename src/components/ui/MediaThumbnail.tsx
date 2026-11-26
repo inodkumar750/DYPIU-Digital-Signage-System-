@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Film, Image as ImageIcon, Play } from 'lucide-react';
 import { MediaType } from '../../types/signage';
+import { formatMediaUrl } from '../../api/signageApi';
 
 interface MediaThumbnailProps {
   src?: string;
   alt: string;
   type: MediaType;
   durationSeconds?: number;
+  aspectRatio?: '16:9' | '9:16';
   accentTone?: 'primary' | 'secondary' | 'accent' | 'cream';
   className?: string;
   showDuration?: boolean;
@@ -24,11 +26,27 @@ export const MediaThumbnail: React.FC<MediaThumbnailProps> = ({
   alt,
   type,
   durationSeconds,
+  aspectRatio,
   accentTone = 'primary',
-  className = 'aspect-video',
+  className,
   showDuration = true,
 }) => {
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  const resolvedClassName =
+    className ?? (aspectRatio === '9:16' ? 'aspect-[9/16]' : 'aspect-video');
+
+  const resolvedSrc = formatMediaUrl(src);
+  const isVideoFile =
+    Boolean(resolvedSrc) &&
+    (resolvedSrc.endsWith('.mp4') ||
+      resolvedSrc.endsWith('.webm') ||
+      resolvedSrc.endsWith('.mov') ||
+      resolvedSrc.includes('video'));
 
   const fallbackGradient = (() => {
     switch (accentTone) {
@@ -46,16 +64,27 @@ export const MediaThumbnail: React.FC<MediaThumbnailProps> = ({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-lg bg-[#290044]/10 border border-[#E8E2EE] select-none ${className}`}
+      className={`relative overflow-hidden rounded-lg bg-[#290044]/10 border border-[#E8E2EE] select-none ${resolvedClassName}`}
     >
-      {src && !failed ? (
-        <img
-          src={src}
-          alt={alt}
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-        />
+      {resolvedSrc && !failed ? (
+        type === 'Video' && isVideoFile ? (
+          <video
+            src={resolvedSrc}
+            muted
+            playsInline
+            preload="metadata"
+            onError={() => setFailed(true)}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <img
+            src={resolvedSrc}
+            alt={alt}
+            referrerPolicy="no-referrer"
+            onError={() => setFailed(true)}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+        )
       ) : (
         <div
           className={`w-full h-full bg-gradient-to-br ${fallbackGradient} flex flex-col items-center justify-center p-4 text-center`}

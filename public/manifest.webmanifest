@@ -1,0 +1,18 @@
+{
+  "name": "CampusCast TV Player — DYPIU",
+  "short_name": "CampusCast TV",
+  "description": "D.Y. Patil International University Smart TV & Kiosk Digital Signage Player",
+  "start_url": "/?player=1&kiosk=1",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0F051D",
+  "theme_color": "#290044",
+  "icons": [
+    {
+      "src": "/tv-icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

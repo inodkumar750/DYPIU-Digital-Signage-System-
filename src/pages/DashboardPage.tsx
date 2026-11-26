@@ -285,7 +285,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 />
               </div>
               <p className="type-support text-[#645573] tabular-nums">
-                {onlinePct}% of registered campus Smart TVs responded within the last 5 minutes.
+                {onlinePct}% of registered campus Smart TVs sent a live heartbeat in the last 45 seconds.
               </p>
             </div>
 
@@ -311,10 +311,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                           <span className="font-mono">{screen.id}</span> · {screen.name}
                         </p>
                         <p className="text-[12px] text-[#645573] truncate">
-                          {screen.building} · Last seen {screen.lastSeen}
+                          {screen.building} · {screen.isActive ? `TV Off / No Signal · ${screen.lastSeen}` : 'Turned Off from Screen Management'}
                         </p>
                       </div>
-                      <StatusBadge status="Offline" />
+                      <StatusBadge status={screen.isActive ? 'Offline' : 'Standby'} />
                     </button>
                   ))}
                 </div>

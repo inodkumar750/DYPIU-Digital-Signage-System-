@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Edit3,
   List,
   Pause,
   Play,
@@ -20,6 +21,11 @@ import {
 } from '../types/signage';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { Modal } from '../components/ui/Modal';
+import {
+  getLocalDateStr,
+  isCampaignInWindow,
+  isCampaignLiveNow,
+} from '../utils/campaignSchedule';
 
 interface CampaignsPageProps {
   campaigns: Campaign[];
@@ -62,10 +68,24 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [statusFilter, setStatusFilter] = useState<'All' | CampaignStatus>('All');
   const [search, setSearch] = useState('');
-  const [calendarMonth, setCalendarMonth] = useState<'2026-11' | '2026-12'>('2026-11');
+  const [calendarMonth, setCalendarMonth] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const [nowTick, setNowTick] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowTick(new Date()), 15000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const defaultToday = getLocalDateStr();
+  const defaultNextWeek = getLocalDateStr(new Date(Date.now() + 7 * 86400000));
 
   // 5-Step Wizard Modal State
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [wizardError, setWizardError] = useState('');
 
@@ -75,10 +95,10 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
   const [cmpPlaylistId, setCmpPlaylistId] = useState(playlists[0]?.id || '');
   const [cmpGroupIds, setCmpGroupIds] = useState<string[]>([]);
   const [cmpScreenIds, setCmpScreenIds] = useState<string[]>([]);
-  const [cmpStartDate, setCmpStartDate] = useState('2026-11-24');
-  const [cmpEndDate, setCmpEndDate] = useState('2026-12-10');
-  const [cmpStartTime, setCmpStartTime] = useState('08:30');
-  const [cmpEndTime, setCmpEndTime] = useState('19:30');
+  const [cmpStartDate, setCmpStartDate] = useState(defaultToday);
+  const [cmpEndDate, setCmpEndDate] = useState(defaultNextWeek);
+  const [cmpStartTime, setCmpStartTime] = useState('08:00');
+  const [cmpEndTime, setCmpEndTime] = useState('22:00');
 
   useEffect(() => {
     if (openWizardSignal > 0) {
@@ -87,18 +107,38 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
   }, [openWizardSignal]);
 
   const openWizard = () => {
+    const today = getLocalDateStr();
+    const nextWeek = getLocalDateStr(new Date(Date.now() + 7 * 86400000));
+    setEditingCampaignId(null);
     setStep(1);
     setWizardError('');
     setCmpName('');
     setCmpDesc('');
     setCmpPriority('Normal');
     setCmpPlaylistId(playlists[0]?.id || '');
-    setCmpGroupIds(['grp-a-0']);
-    setCmpScreenIds(['DYPIU-TV-001', 'DYPIU-TV-006']);
-    setCmpStartDate('2026-11-24');
-    setCmpEndDate('2026-12-10');
-    setCmpStartTime('08:30');
-    setCmpEndTime('19:30');
+    setCmpGroupIds([]);
+    setCmpScreenIds([]);
+    setCmpStartDate(today);
+    setCmpEndDate(nextWeek);
+    setCmpStartTime('08:00');
+    setCmpEndTime('22:00');
+    setWizardOpen(true);
+  };
+
+  const openEditWizard = (cmp: Campaign) => {
+    setEditingCampaignId(cmp.id);
+    setStep(4);
+    setWizardError('');
+    setCmpName(cmp.name);
+    setCmpDesc(cmp.description);
+    setCmpPriority(cmp.priority);
+    setCmpPlaylistId(cmp.playlistId);
+    setCmpGroupIds(cmp.targetGroupIds || []);
+    setCmpScreenIds(cmp.targetScreenIds || []);
+    setCmpStartDate(cmp.startDate);
+    setCmpEndDate(cmp.endDate);
+    setCmpStartTime(cmp.startTime);
+    setCmpEndTime(cmp.endTime);
     setWizardOpen(true);
   };
 
@@ -141,9 +181,30 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
     setStep((s) => Math.min(5, s + 1));
   };
 
+  const computeScheduledStatus = (): CampaignStatus => {
+    const today = getLocalDateStr();
+    if (cmpEndDate < today) return 'Completed';
+    const isLiveRightNow = isCampaignInWindow({
+      startDate: cmpStartDate,
+      endDate: cmpEndDate,
+      startTime: cmpStartTime,
+      endTime: cmpEndTime,
+    });
+    return isLiveRightNow ? 'Active' : 'Scheduled';
+  };
+
   const submitWizard = (targetStatus: CampaignStatus) => {
+    if (!cmpStartDate || !cmpEndDate || cmpEndDate < cmpStartDate) {
+      setWizardError('End date must be on or after the start date.');
+      setStep(4);
+      return;
+    }
+    if (!cmpName.trim() || !cmpPlaylistId || cmpScreenIds.length === 0) {
+      setWizardError('Please complete campaign name, playlist, and target screens.');
+      return;
+    }
     const newCmp: Campaign = {
-      id: `cmp-${Date.now().toString().slice(-4)}`,
+      id: editingCampaignId || `cmp-${Date.now().toString().slice(-4)}`,
       name: cmpName.trim(),
       description: cmpDesc.trim() || 'Scheduled university signage campaign.',
       playlistId: cmpPlaylistId,
@@ -174,10 +235,20 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
   const getPlaylistName = (id: string) =>
     playlists.find((p) => p.id === id)?.name || 'Unassigned Playlist';
 
-  // Calendar grid builder for Nov/Dec 2026
-  const daysInMonth = calendarMonth === '2026-11' ? 30 : 31;
-  // Nov 1 2026 is Sunday (0), Dec 1 2026 is Tuesday (2)
-  const firstDayOffset = calendarMonth === '2026-11' ? 0 : 2;
+  // Calendar grid builder - dynamic month
+  const [calYear, calMonthNum] = calendarMonth.split('-').map(Number);
+  const daysInMonth = new Date(calYear, calMonthNum, 0).getDate();
+  const firstDayOffset = new Date(calYear, calMonthNum - 1, 1).getDay();
+  const calendarMonthLabel = new Date(calYear, calMonthNum - 1, 1).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+  const shiftCalendarMonth = (delta: number) => {
+    const next = new Date(calYear, calMonthNum - 1 + delta, 1);
+    setCalendarMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const nowDate = new Date();
+  const todayStr = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, '0')}-${String(nowDate.getDate()).padStart(2, '0')}`;
   const calendarCells = Array.from({ length: firstDayOffset + daysInMonth }, (_, i) => {
     if (i < firstDayOffset) return null;
     const dayNum = i - firstDayOffset + 1;
@@ -322,11 +393,34 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                         {cmp.targetScreenIds.length} screens
                       </td>
                       <td className="py-3.5 px-4">
-                        <StatusBadge status={cmp.status} />
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusBadge status={cmp.status} />
+                          {(cmp.status === 'Active' || cmp.status === 'Scheduled') && (
+                            isCampaignLiveNow(cmp, nowTick) ? (
+                              <span className="text-[10px] font-mono text-emerald-700 font-semibold">
+                                Playing on TV now
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-mono text-[#645573]">
+                                {cmp.startDate > getLocalDateStr(nowTick)
+                                  ? `Starts ${cmp.startDate}`
+                                  : `Window ${cmp.startTime}–${cmp.endTime}`}
+                              </span>
+                            )
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center gap-1">
-                          {cmp.status === 'Active' ? (
+                          <button
+                            type="button"
+                            onClick={() => openEditWizard(cmp)}
+                            title="Edit schedule (dates, time, playlist & screens)"
+                            className="p-1.5 rounded-md text-[#500071] hover:bg-[#EEE3B0]/40 cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          {cmp.status === 'Active' || cmp.status === 'Scheduled' ? (
                             <button
                               type="button"
                               onClick={() => onUpdateStatus(cmp.id, 'Paused')}
@@ -366,22 +460,22 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
         <div className="bg-white border border-[#E8E2EE] rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-[#290044] font-display">
-              {calendarMonth === '2026-11' ? 'November 2026' : 'December 2026'}
+              {calendarMonthLabel}
             </h3>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setCalendarMonth('2026-11')}
-                disabled={calendarMonth === '2026-11'}
-                className="p-1.5 rounded-lg border border-[#E8E2EE] text-[#290044] disabled:opacity-40"
+                onClick={() => shiftCalendarMonth(-1)}
+                className="p-1.5 rounded-lg border border-[#E8E2EE] text-[#290044] hover:bg-[#FAF8FC] cursor-pointer"
+                title="Previous month"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
                 type="button"
-                onClick={() => setCalendarMonth('2026-12')}
-                disabled={calendarMonth === '2026-12'}
-                className="p-1.5 rounded-lg border border-[#E8E2EE] text-[#290044] disabled:opacity-40"
+                onClick={() => shiftCalendarMonth(1)}
+                className="p-1.5 rounded-lg border border-[#E8E2EE] text-[#290044] hover:bg-[#FAF8FC] cursor-pointer"
+                title="Next month"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -404,7 +498,7 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                 <div
                   key={cell.dateStr}
                   className={`min-h-24 rounded-lg border p-2 flex flex-col gap-1 ${
-                    cell.dateStr === '2026-11-23'
+                    cell.dateStr === todayStr
                       ? 'border-[#500071] bg-[#EEE3B0]/20'
                       : 'border-[#E8E2EE] bg-white'
                   }`}
@@ -414,10 +508,12 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                   </span>
                   <div className="space-y-1 overflow-hidden">
                     {cell.matching.slice(0, 3).map((m) => (
-                      <div
+                      <button
+                        type="button"
                         key={m.id}
-                        title={m.name}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate ${
+                        onClick={() => openEditWizard(m)}
+                        title={`${m.name} (${m.startTime}–${m.endTime}) — Click to edit schedule`}
+                        className={`w-full text-left px-1.5 py-0.5 rounded text-[10px] font-medium truncate cursor-pointer hover:opacity-90 ${
                           m.status === 'Active'
                             ? 'bg-[#500071] text-white'
                             : m.status === 'Scheduled'
@@ -426,7 +522,7 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                         }`}
                       >
                         {m.name}
-                      </div>
+                      </button>
                     ))}
                     {cell.matching.length > 3 && (
                       <span className="block text-[10px] text-[#645573] font-mono">
@@ -441,46 +537,55 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
         </div>
       )}
 
-      {/* 5-Step Campaign Creation Wizard Modal */}
+      {/* 5-Step Campaign Creation / Edit Wizard Modal */}
       <Modal
         isOpen={wizardOpen}
         onClose={() => setWizardOpen(false)}
-        title="Create Signage Campaign"
+        title={editingCampaignId ? 'Edit Campaign Schedule' : 'Create Signage Campaign'}
         subtitle={`Step ${step} of 5 · ${WIZARD_STEPS[step - 1]}`}
         size="xl"
       >
         <div className="space-y-6">
-          {/* Stepper Indicator */}
+          {/* Stepper Indicator (clickable when editing so user can jump between Details, Playlist, Screens, Schedule) */}
           <ol className="grid grid-cols-5 gap-2">
             {WIZARD_STEPS.map((label, idx) => {
               const sNum = idx + 1;
               const isCompleted = step > sNum;
               const isCurrent = step === sNum;
               return (
-                <li
-                  key={label}
-                  className={`p-2.5 rounded-lg border text-xs transition-colors ${
-                    isCurrent
-                      ? 'border-[#500071] bg-[#EEE3B0]/35 text-[#290044]'
-                      : isCompleted
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                        : 'border-[#E8E2EE] bg-[#FAF8FC] text-[#645573]'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-semibold">
-                    <span
-                      className={`w-5 h-5 rounded-full text-[11px] font-mono flex items-center justify-center shrink-0 ${
-                        isCurrent
-                          ? 'bg-[#500071] text-white'
-                          : isCompleted
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-[#E8E2EE] text-[#645573]'
-                      }`}
-                    >
-                      {isCompleted ? <Check className="w-3 h-3" /> : sNum}
-                    </span>
-                    <span className="truncate hidden sm:inline">{label}</span>
-                  </div>
+                <li key={label}>
+                  <button
+                    type="button"
+                    disabled={!editingCampaignId && sNum > step}
+                    onClick={() => {
+                      if (editingCampaignId || sNum <= step) {
+                        setWizardError('');
+                        setStep(sNum);
+                      }
+                    }}
+                    className={`w-full text-left p-2.5 rounded-lg border text-xs transition-colors ${
+                      isCurrent
+                        ? 'border-[#500071] bg-[#EEE3B0]/35 text-[#290044]'
+                        : isCompleted
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-[#E8E2EE] bg-[#FAF8FC] text-[#645573]'
+                    } ${editingCampaignId || sNum <= step ? 'cursor-pointer hover:border-[#8A2A78]' : 'cursor-default'}`}
+                  >
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      <span
+                        className={`w-5 h-5 rounded-full text-[11px] font-mono flex items-center justify-center shrink-0 ${
+                          isCurrent
+                            ? 'bg-[#500071] text-white'
+                            : isCompleted
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-[#E8E2EE] text-[#645573]'
+                        }`}
+                      >
+                        {isCompleted ? <Check className="w-3 h-3" /> : sNum}
+                      </span>
+                      <span className="truncate hidden sm:inline">{label}</span>
+                    </div>
+                  </button>
                 </li>
               );
             })}
@@ -730,6 +835,15 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
             </button>
 
             <div className="flex items-center gap-2.5">
+              {editingCampaignId && step < 5 && (
+                <button
+                  type="button"
+                  onClick={() => submitWizard(computeScheduledStatus())}
+                  className="px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78] cursor-pointer"
+                >
+                  Save Schedule Changes
+                </button>
+              )}
               {step === 5 ? (
                 <>
                   <button
@@ -741,19 +855,21 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      submitWizard(cmpStartDate <= '2026-11-23' ? 'Active' : 'Scheduled')
-                    }
+                    onClick={() => submitWizard(computeScheduledStatus())}
                     className="px-5 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
                   >
-                    Schedule & Publish
+                    {editingCampaignId ? 'Save Schedule Changes' : 'Schedule & Publish'}
                   </button>
                 </>
               ) : (
                 <button
                   type="button"
                   onClick={validateAndNext}
-                  className="px-5 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
+                  className={`px-5 py-2 rounded-lg text-xs font-semibold ${
+                    editingCampaignId
+                      ? 'border border-[#500071] text-[#500071] hover:bg-[#FAF8FC]'
+                      : 'bg-[#500071] text-white hover:bg-[#8A2A78]'
+                  }`}
                 >
                   Continue
                 </button>

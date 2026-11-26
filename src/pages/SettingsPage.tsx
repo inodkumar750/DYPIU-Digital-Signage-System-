@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Bell,
   Building2,
@@ -48,6 +48,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('university');
   const [draft, setDraft] = useState<UniversitySettings>(settings);
+
+  useEffect(() => {
+    setDraft(settings);
+  }, [settings]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -292,6 +296,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </select>
                 </div>
               </div>
+              <label className="flex items-center gap-2.5 pt-2 text-xs text-[#290044] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.showTvTicker !== false}
+                  onChange={(e) =>
+                    setDraft({ ...draft, showTvTicker: e.target.checked })
+                  }
+                  className="accent-[#500071] w-4 h-4"
+                />
+                Show bottom campus ticker bar, scrolling notice & clock on TV screens
+              </label>
             </div>
           )}
 

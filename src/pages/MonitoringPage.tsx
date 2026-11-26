@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -19,6 +19,7 @@ interface MonitoringPageProps {
   playlists: Playlist[];
   mediaAssets: MediaAsset[];
   onSimulateReconnect: (screenId: string) => void;
+  onPollHeartbeats?: () => Promise<void> | void;
 }
 
 export const MonitoringPage: React.FC<MonitoringPageProps> = ({
@@ -26,11 +27,24 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
   playlists,
   mediaAssets,
   onSimulateReconnect,
+  onPollHeartbeats,
 }) => {
   const [statusFilter, setStatusFilter] = useState<'All' | 'Online' | 'Offline' | 'Errors'>('All');
   const [buildingFilter, setBuildingFilter] = useState('All');
   const [inspectedScreen, setInspectedScreen] = useState<ScreenDevice | null>(null);
-  const [lastSyncTime, setLastSyncTime] = useState('09:36:52');
+  const formatNowTime = () => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  };
+  const [lastSyncTime, setLastSyncTime] = useState(formatNowTime);
+  const [polling, setPolling] = useState(false);
+
+  useEffect(() => {
+    setLastSyncTime(formatNowTime());
+  }, [screens]);
 
   const totalDevices = screens.length;
   const connectedDevices = screens.filter((s) => s.connectionStatus === 'Online').length;
@@ -58,12 +72,14 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
   const getMedia = (id: string | null) =>
     mediaAssets.find((m) => m.id === id) || mediaAssets[0];
 
-  const handleGlobalPoll = () => {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const ss = String(now.getSeconds()).padStart(2, '0');
-    setLastSyncTime(`${hh}:${mm}:${ss}`);
+  const handleGlobalPoll = async () => {
+    setPolling(true);
+    try {
+      await onPollHeartbeats?.();
+    } finally {
+      setLastSyncTime(formatNowTime());
+      setPolling(false);
+    }
   };
 
   return (
@@ -82,10 +98,11 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
         <button
           type="button"
           onClick={handleGlobalPoll}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#500071] text-white type-button hover:bg-[#8A2A78] transition-colors whitespace-nowrap"
+          disabled={polling}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#500071] text-white type-button hover:bg-[#8A2A78] transition-colors whitespace-nowrap disabled:opacity-70"
         >
-          <RefreshCw className="w-4 h-4" />
-          Poll all heartbeats
+          <RefreshCw className={`w-4 h-4 ${polling ? 'animate-spin' : ''}`} />
+          {polling ? 'Polling live status...' : 'Poll all heartbeats'}
         </button>
       </div>
 
@@ -122,7 +139,7 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
         <StatCard
           label="Last sync"
           value={lastSyncTime}
-          description="Simulated campus poll."
+          description="Live 5s MySQL telemetry."
           icon={Clock}
           tone="highlight"
         />
@@ -179,10 +196,10 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
                   accentTone={media?.accentTone}
                   showDuration={false}
                 />
-                {scr.connectionStatus === 'Offline' && (
+                {(scr.connectionStatus === 'Offline' || !scr.isActive) && (
                   <div className="absolute inset-3 bottom-0 rounded-lg bg-[#290044]/75 flex items-center justify-center text-white text-xs font-semibold gap-2">
                     <MonitorOff className="w-4 h-4 text-[#EEE3B0]" />
-                    Signal Lost
+                    {scr.isActive ? 'TV Powered Off / No Signal' : 'Turned Off (Standby)'}
                   </div>
                 )}
               </div>
@@ -196,7 +213,7 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
                       </p>
                       <h3 className="type-card-title text-[#290044] truncate">{scr.name}</h3>
                     </div>
-                    <StatusBadge status={scr.connectionStatus} />
+                    <StatusBadge status={scr.isActive ? scr.connectionStatus : 'Standby'} />
                   </div>
                   <p className="text-xs text-[#645573] truncate">
                     {scr.building} · {scr.floor} · {scr.location}
@@ -235,9 +252,10 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
                     <button
                       type="button"
                       onClick={() => onSimulateReconnect(scr.id)}
-                      className="py-2 px-3 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78] transition-colors"
+                      title="Sends a remote wake-up signal to reopen CampusCast on this TV if powered on"
+                      className="py-2 px-3 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78] transition-colors cursor-pointer"
                     >
-                      Reconnect
+                      Wake / Reconnect
                     </button>
                   )}
                 </div>
@@ -302,9 +320,9 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
                     onSimulateReconnect(inspectedScreen.id);
                     setInspectedScreen(null);
                   }}
-                  className="px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
+                  className="px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78] cursor-pointer"
                 >
-                  Simulate Player Reconnect
+                  Send Wake / Reconnect
                 </button>
               )}
             </div>

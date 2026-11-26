@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import {
+  Clock,
   Edit3,
   Monitor,
   Pause,
@@ -25,14 +26,17 @@ import {
   Search,
   SkipBack,
   SkipForward,
+  Smartphone,
   Trash2,
   Tv,
 } from 'lucide-react';
 import {
+  MediaAspectRatio,
   MediaAsset,
   Playlist,
   PlaylistItem,
   PlaylistStatus,
+  ScreenDevice,
 } from '../types/signage';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { MediaThumbnail, formatDuration } from '../components/ui/MediaThumbnail';
@@ -44,24 +48,32 @@ import {
 
 interface PlaylistsPageProps {
   playlists: Playlist[];
+  screens?: ScreenDevice[];
   mediaAssets: MediaAsset[];
   openCreateSignal: number;
   onSavePlaylist: (playlist: Playlist) => void;
   onDeletePlaylist: (id: string) => void;
+  onAssignScreens?: (playlistId: string, screenIds: string[]) => void;
 }
 
 export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
   playlists,
+  screens = [],
   mediaAssets,
   openCreateSignal,
   onSavePlaylist,
   onDeletePlaylist,
+  onAssignScreens,
 }) => {
   const [selectedPreviewPlaylistId, setSelectedPreviewPlaylistId] = useState<string>(
     playlists[0]?.id || ''
   );
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingPlaylistId, setEditingPlaylistId] = useState<string | null>(null);
+
+  // Assign Displays Modal State
+  const [assignPl, setAssignPl] = useState<Playlist | null>(null);
+  const [selectedScreenIds, setSelectedScreenIds] = useState<string[]>([]);
 
   // Editor State
   const [name, setName] = useState('');
@@ -73,12 +85,14 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
   const [items, setItems] = useState<PlaylistItem[]>([]);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [mediaPickerSearch, setMediaPickerSearch] = useState('');
+  const [mediaPickerRatioFilter, setMediaPickerRatioFilter] = useState<'All' | MediaAspectRatio>('All');
   const [editorError, setEditorError] = useState('');
 
-  // Simulated TV Player Preview State
+  // Simulated TV & Standy Player Preview State
   const [isPlaying, setIsPlaying] = useState(true);
   const [slideIdx, setSlideIdx] = useState(0);
   const [elapsedInSlide, setElapsedInSlide] = useState(0);
+  const [previewAspectMode, setPreviewAspectMode] = useState<'auto' | MediaAspectRatio>('auto');
 
   // dnd-kit sensors (pointer + accessible keyboard sorting)
   const sensors = useSensors(
@@ -95,6 +109,16 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
   const previewPlaylist =
     playlists.find((p) => p.id === selectedPreviewPlaylistId) || playlists[0] || null;
 
+  const sortedPreviewItems = React.useMemo(
+    () => [...(previewPlaylist?.items || [])].sort((a, b) => a.order - b.order),
+    [previewPlaylist]
+  );
+
+  const previewLinkedScreens = React.useMemo(
+    () => (previewPlaylist ? screens.filter((s) => s.assignedPlaylistId === previewPlaylist.id) : []),
+    [screens, previewPlaylist]
+  );
+
   const getMediaById = (id: string) => mediaAssets.find((m) => m.id === id);
 
   useEffect(() => {
@@ -109,17 +133,17 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     setElapsedInSlide(0);
   }, [selectedPreviewPlaylistId]);
 
-  // Simulate TV rotation timer
+  // Simulate TV rotation timer (matches TvPlayerPage slide order and durations)
   useEffect(() => {
-    if (!isPlaying || !previewPlaylist || previewPlaylist.items.length === 0) return;
+    if (!isPlaying || sortedPreviewItems.length === 0) return;
 
-    const currentItem = previewPlaylist.items[slideIdx % previewPlaylist.items.length];
-    const duration = Math.max(3, currentItem?.displayDurationSeconds || 10);
+    const currentItem = sortedPreviewItems[slideIdx % sortedPreviewItems.length];
+    const duration = Math.max(1, currentItem?.displayDurationSeconds || 10);
 
     const timer = window.setInterval(() => {
       setElapsedInSlide((prev) => {
         if (prev + 1 >= duration) {
-          setSlideIdx((s) => (s + 1) % previewPlaylist.items.length);
+          setSlideIdx((s) => (s + 1) % sortedPreviewItems.length);
           return 0;
         }
         return prev + 1;
@@ -127,7 +151,7 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isPlaying, previewPlaylist, slideIdx]);
+  }, [isPlaying, sortedPreviewItems, slideIdx]);
 
   const openCreateModal = () => {
     setEditingPlaylistId(null);
@@ -139,6 +163,7 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     setLoopPlaylist(true);
     setItems([]);
     setMediaPickerSearch('');
+    setMediaPickerRatioFilter('All');
     setEditorError('');
     setEditorOpen(true);
   };
@@ -153,6 +178,7 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     setLoopPlaylist(pl.loopPlaylist);
     setItems([...pl.items].sort((a, b) => a.order - b.order));
     setMediaPickerSearch('');
+    setMediaPickerRatioFilter('All');
     setEditorError('');
     setEditorOpen(true);
   };
@@ -225,17 +251,42 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     setEditorOpen(false);
   };
 
+  const openAssignModal = (pl: Playlist) => {
+    setAssignPl(pl);
+    const linked = screens.filter((s) => s.assignedPlaylistId === pl.id).map((s) => s.id);
+    setSelectedScreenIds(linked);
+  };
+
+  const handleSaveScreenAssignments = () => {
+    if (!assignPl || !onAssignScreens) return;
+    onAssignScreens(assignPl.id, selectedScreenIds);
+    setAssignPl(null);
+  };
+
   const activeDragItem = activeDragId
     ? items.find((it) => it.id === activeDragId)
     : undefined;
 
+  const getMediaAspectRatio = (media?: MediaAsset): MediaAspectRatio => {
+    if (!media) return '16:9';
+    if (media.aspectRatio === '9:16' || media.aspectRatio === '16:9') {
+      return media.aspectRatio;
+    }
+    return media.dimensions?.includes('1080 × 1920') ? '9:16' : '16:9';
+  };
+
   const filteredPickerMedia = mediaAssets.filter((m) => {
+    const ratio = getMediaAspectRatio(m);
+    if (mediaPickerRatioFilter !== 'All' && ratio !== mediaPickerRatioFilter) {
+      return false;
+    }
     const q = mediaPickerSearch.trim().toLowerCase();
     if (!q) return true;
     return (
       m.title.toLowerCase().includes(q) ||
       m.category.toLowerCase().includes(q) ||
-      m.type.toLowerCase().includes(q)
+      m.type.toLowerCase().includes(q) ||
+      ratio.includes(q)
     );
   });
 
@@ -244,13 +295,99 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     0
   );
 
+  const handleSetTotalLoop = (targetSec: number) => {
+    if (isNaN(targetSec) || targetSec < 1 || items.length === 0) return;
+    const clamped = Math.max(items.length, Math.min(3600, targetSec));
+    const currentTotal = items.reduce(
+      (sum, it) => sum + (it.displayDurationSeconds || 1),
+      0
+    );
+
+    if (currentTotal === 0) {
+      const perSlide = Math.max(1, Math.floor(clamped / items.length));
+      setItems((prev) =>
+        prev.map((it, idx) => ({
+          ...it,
+          displayDurationSeconds:
+            idx === prev.length - 1 ? clamped - perSlide * (prev.length - 1) : perSlide,
+        }))
+      );
+      return;
+    }
+
+    // Proportionally scale each slide
+    let allocated = 0;
+    const newItems = items.map((it, idx) => {
+      if (idx === items.length - 1) {
+        const remaining = Math.max(1, clamped - allocated);
+        return { ...it, displayDurationSeconds: remaining };
+      }
+      const ratio = (it.displayDurationSeconds || 1) / currentTotal;
+      const share = Math.max(1, Math.round(ratio * clamped));
+      allocated += share;
+      return { ...it, displayDurationSeconds: share };
+    });
+
+    const finalSum = newItems.reduce((s, it) => s + it.displayDurationSeconds, 0);
+    if (finalSum !== clamped) {
+      const diff = clamped - finalSum;
+      newItems[newItems.length - 1].displayDurationSeconds = Math.max(
+        1,
+        newItems[newItems.length - 1].displayDurationSeconds + diff
+      );
+    }
+
+    setItems(newItems);
+
+    const imageSlides = newItems.filter((it) => {
+      const m = getMediaById(it.mediaId);
+      return !m || m.type === 'Image';
+    });
+    if (imageSlides.length > 0) {
+      const avg = Math.round(
+        imageSlides.reduce((s, it) => s + it.displayDurationSeconds, 0) /
+          imageSlides.length
+      );
+      setDefaultDuration(Math.max(1, avg));
+    }
+  };
+
+  const handleEvenlySplitTotalLoop = () => {
+    if (items.length === 0) return;
+    const target = editorTotalDuration > 0 ? editorTotalDuration : 30;
+    const base = Math.max(1, Math.floor(target / items.length));
+    const rem = target - base * items.length;
+
+    setItems((prev) =>
+      prev.map((it, idx) => ({
+        ...it,
+        displayDurationSeconds: base + (idx < rem ? 1 : 0),
+      }))
+    );
+    setDefaultDuration(base);
+  };
+
   const currentPreviewItem =
-    previewPlaylist && previewPlaylist.items.length > 0
-      ? previewPlaylist.items[slideIdx % previewPlaylist.items.length]
+    sortedPreviewItems.length > 0
+      ? sortedPreviewItems[slideIdx % sortedPreviewItems.length]
       : null;
   const currentPreviewMedia = currentPreviewItem
     ? getMediaById(currentPreviewItem.mediaId)
     : undefined;
+  const currentSlideRatio = getMediaAspectRatio(currentPreviewMedia);
+  const linkedStandyScreen = previewLinkedScreens.some((s) =>
+    `${s.id} ${s.name}`.toLowerCase().includes('stendy') ||
+    `${s.id} ${s.name}`.toLowerCase().includes('standy') ||
+    `${s.id} ${s.name}`.toLowerCase().includes('portrait')
+  );
+  const effectivePreviewRatio: MediaAspectRatio =
+    previewAspectMode !== 'auto'
+      ? previewAspectMode
+      : currentPreviewMedia
+      ? currentSlideRatio
+      : linkedStandyScreen
+      ? '9:16'
+      : '16:9';
   const currentSlideDuration = currentPreviewItem?.displayDurationSeconds || 10;
   const progressPct = Math.min(100, Math.round((elapsedInSlide / currentSlideDuration) * 100));
 
@@ -315,8 +452,11 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                   </div>
                   <div>
                     <span className="block text-[11px] text-[#645573]">Screens</span>
-                    <span className="font-mono font-semibold text-[#290044] tabular-nums">
-                      {pl.assignedScreenIds.length} TVs
+                    <span className="font-mono font-semibold text-[#500071] tabular-nums">
+                      {screens.length > 0
+                        ? screens.filter((s) => s.assignedPlaylistId === pl.id).length
+                        : pl.assignedScreenIds.length}{' '}
+                      TVs
                     </span>
                   </div>
                   <div>
@@ -345,6 +485,14 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                     </button>
                     <button
                       type="button"
+                      onClick={() => openAssignModal(pl)}
+                      className="p-1.5 rounded-md text-[#500071] hover:bg-[#EEE3B0]/40 transition-colors"
+                      title="Assign / Unassign TV screens for this playlist"
+                    >
+                      <Tv className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => openEditModal(pl)}
                       className="p-1.5 rounded-md text-[#500071] hover:bg-[#FAF8FC]"
                       title="Edit playlist"
@@ -370,68 +518,152 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
         <section className="xl:col-span-5 bg-white border border-[#E6E0EC] rounded-xl p-6 shadow-[0_1px_2px_rgba(41,0,68,0.04)] sticky top-24 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <Tv className="w-4 h-4 text-[#500071] shrink-0" />
+              {effectivePreviewRatio === '9:16' ? (
+                <Smartphone className="w-4 h-4 text-[#8A2A78] shrink-0" />
+              ) : (
+                <Tv className="w-4 h-4 text-[#500071] shrink-0" />
+              )}
               <div className="min-w-0">
                 <h3 className="type-card-title text-[#290044] truncate">
-                  Smart TV rotation preview
+                  {effectivePreviewRatio === '9:16'
+                    ? 'Standy portrait preview (9:16)'
+                    : 'Smart TV rotation preview'}
                 </h3>
                 <p className="type-support text-[#645573] truncate">
                   {previewPlaylist ? previewPlaylist.name : 'Select a playlist'}
                 </p>
               </div>
             </div>
-            <span className="text-[12px] font-mono text-[#500071] bg-[#EEE3B0]/60 px-2.5 py-0.5 rounded">
-              Simulated player
-            </span>
+            {previewPlaylist && (
+              previewLinkedScreens.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => openAssignModal(previewPlaylist)}
+                  className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded hover:bg-emerald-100 shrink-0 cursor-pointer"
+                  title="Click to manage which TVs play this playlist"
+                >
+                  Live on: {previewLinkedScreens.map((s) => s.name).join(', ')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openAssignModal(previewPlaylist)}
+                  className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded hover:bg-amber-100 shrink-0 cursor-pointer"
+                  title="Assign a TV screen so this playlist plays on your physical TV"
+                >
+                  0 TVs linked · Assign TV
+                </button>
+              )
+            )}
           </div>
 
-          {/* TV Bezel */}
-          <div className="rounded-xl bg-[#1A1025] p-2.5 border-2 border-[#290044] shadow-md">
-            <div className="relative aspect-video rounded-lg overflow-hidden bg-[#290044]">
-              {currentPreviewMedia ? (
-                <>
-                  <MediaThumbnail
-                    src={currentPreviewMedia.thumbnailUrl}
-                    alt={currentPreviewMedia.title}
-                    type={currentPreviewMedia.type}
-                    durationSeconds={currentPreviewMedia.durationSeconds}
-                    accentTone={currentPreviewMedia.accentTone}
-                    className="w-full h-full rounded-none border-0"
-                    showDuration={false}
-                  />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-3.5 text-white">
-                    <div className="flex items-end justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[11px] text-[#EEE3B0] font-medium">
-                          {currentPreviewMedia.category} · {currentPreviewMedia.type}
-                        </p>
-                        <p className="text-sm font-semibold truncate">
-                          {currentPreviewMedia.title}
-                        </p>
-                      </div>
-                      <span className="text-xs font-mono tabular-nums shrink-0 text-white/90">
-                        {elapsedInSlide}s / {currentSlideDuration}s
-                      </span>
-                    </div>
-                    <div className="mt-2 h-1 rounded-full bg-white/25 overflow-hidden">
-                      <div
-                        className="h-full bg-[#EEE3B0] transition-all duration-300"
-                        style={{ width: `${progressPct}%` }}
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-white/70 p-6 text-center">
-                  <Monitor className="w-8 h-8 mb-2 opacity-60" />
-                  <p className="text-xs font-medium">No media items in this playlist yet</p>
-                </div>
-              )}
+          {/* Display Orientation Switcher: TV (16:9) vs Standy (9:16) */}
+          <div className="flex items-center justify-between gap-2 bg-[#FAF8FC] border border-[#E8E2EE] rounded-lg px-2.5 py-1.5 text-[11px]">
+            <span className="font-semibold text-[#645573]">Preview frame:</span>
+            <div className="flex items-center gap-1" role="group" aria-label="Preview aspect ratio">
+              {(['auto', '16:9', '9:16'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setPreviewAspectMode(mode)}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                    previewAspectMode === mode
+                      ? 'bg-[#500071] text-white shadow-xs'
+                      : 'text-[#645573] hover:text-[#290044] hover:bg-white'
+                  }`}
+                >
+                  {mode === 'auto' && 'Auto'}
+                  {mode === '16:9' && (
+                    <>
+                      <Monitor className="w-3 h-3" />
+                      16:9 TV
+                    </>
+                  )}
+                  {mode === '9:16' && (
+                    <>
+                      <Smartphone className="w-3 h-3" />
+                      9:16 Standy
+                    </>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
 
+          {/* TV / Standy Bezel */}
+          <div
+            className={
+              effectivePreviewRatio === '9:16'
+                ? 'flex flex-col items-center py-1 bg-[#FAF8FC] rounded-xl border border-[#E8E2EE]'
+                : ''
+            }
+          >
+            <div
+              className={`rounded-xl bg-[#1A1025] p-2.5 border-2 border-[#290044] shadow-md transition-all ${
+                effectivePreviewRatio === '9:16' ? 'w-full max-w-[235px]' : 'w-full'
+              }`}
+            >
+              <div
+                className={`relative rounded-lg overflow-hidden bg-[#290044] ${
+                  effectivePreviewRatio === '9:16' ? 'aspect-[9/16]' : 'aspect-video'
+                }`}
+              >
+                {currentPreviewMedia ? (
+                  <>
+                    <MediaThumbnail
+                      src={
+                        currentPreviewMedia.type === 'Video' && currentPreviewMedia.fileUrl
+                          ? currentPreviewMedia.fileUrl
+                          : currentPreviewMedia.thumbnailUrl
+                      }
+                      alt={currentPreviewMedia.title}
+                      type={currentPreviewMedia.type}
+                      durationSeconds={currentPreviewMedia.durationSeconds}
+                      accentTone={currentPreviewMedia.accentTone}
+                      className="w-full h-full rounded-none border-0"
+                      showDuration={false}
+                    />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-3.5 text-white">
+                      <div className="flex items-end justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-[#EEE3B0] font-medium truncate">
+                            {currentPreviewMedia.category} · {currentPreviewMedia.type} ·{' '}
+                            {currentSlideRatio}
+                          </p>
+                          <p className="text-sm font-semibold truncate">
+                            {currentPreviewMedia.title}
+                          </p>
+                        </div>
+                        <span className="text-xs font-mono tabular-nums shrink-0 text-white/90">
+                          {elapsedInSlide}s / {currentSlideDuration}s
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1 rounded-full bg-white/25 overflow-hidden">
+                        <div
+                          className="h-full bg-[#EEE3B0] transition-all duration-300"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-white/70 p-6 text-center">
+                    <Monitor className="w-8 h-8 mb-2 opacity-60" />
+                    <p className="text-xs font-medium">No media items in this playlist yet</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            {effectivePreviewRatio === '9:16' && (
+              <div className="flex flex-col items-center">
+                <div className="w-5 h-3 bg-[#290044]" />
+                <div className="w-24 h-2 rounded-full bg-[#1A1025] shadow-sm" />
+              </div>
+            )}
+          </div>
+
           {/* Player Controls */}
-          {previewPlaylist && previewPlaylist.items.length > 0 && (
+          {previewPlaylist && sortedPreviewItems.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
@@ -439,7 +671,7 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                     type="button"
                     onClick={() => {
                       setSlideIdx((s) =>
-                        s === 0 ? previewPlaylist.items.length - 1 : s - 1
+                        s === 0 ? sortedPreviewItems.length - 1 : s - 1
                       );
                       setElapsedInSlide(0);
                     }}
@@ -468,7 +700,7 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setSlideIdx((s) => (s + 1) % previewPlaylist.items.length);
+                      setSlideIdx((s) => (s + 1) % sortedPreviewItems.length);
                       setElapsedInSlide(0);
                     }}
                     aria-label="Next slide"
@@ -479,16 +711,16 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                 </div>
 
                 <span className="text-xs font-mono tabular-nums text-[#645573]">
-                  Slide {(slideIdx % previewPlaylist.items.length) + 1} of{' '}
-                  {previewPlaylist.items.length}
+                  Slide {(slideIdx % sortedPreviewItems.length) + 1} of{' '}
+                  {sortedPreviewItems.length}
                 </span>
               </div>
 
               {/* Queue Sequence */}
               <div className="divide-y divide-[#F1ECF6] border border-[#E8E2EE] rounded-lg max-h-52 overflow-y-auto">
-                {previewPlaylist.items.map((item, idx) => {
+                {sortedPreviewItems.map((item, idx) => {
                   const media = getMediaById(item.mediaId);
-                  const active = idx === slideIdx % previewPlaylist.items.length;
+                  const active = idx === slideIdx % sortedPreviewItems.length;
                   return (
                     <button
                       key={item.id}
@@ -501,9 +733,18 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                         active ? 'bg-[#EEE3B0]/45 font-semibold text-[#290044]' : 'hover:bg-[#FAF8FC] text-[#645573]'
                       }`}
                     >
-                      <span className="truncate">
-                        <span className="font-mono mr-2">{idx + 1}.</span>
-                        {media?.title || item.mediaId}
+                      <span className="truncate flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono shrink-0">{idx + 1}.</span>
+                        <span className="truncate">{media?.title || item.mediaId}</span>
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                            getMediaAspectRatio(media) === '9:16'
+                              ? 'bg-[#8A2A78]/15 text-[#8A2A78]'
+                              : 'bg-[#500071]/10 text-[#500071]'
+                          }`}
+                        >
+                          {getMediaAspectRatio(media)}
+                        </span>
                       </span>
                       <span className="font-mono tabular-nums shrink-0">
                         {item.displayDurationSeconds}s
@@ -572,22 +813,60 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#290044] mb-1">
-                Default Image Duration (sec)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-[#290044]">
+                  Default Image Duration (sec)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setItems((prev) =>
+                      prev.map((it) => {
+                        const media = getMediaById(it.mediaId);
+                        if (!media || media.type === 'Image') {
+                          return { ...it, displayDurationSeconds: defaultDuration };
+                        }
+                        return it;
+                      })
+                    );
+                  }}
+                  className="text-[10px] font-semibold text-[#8A2A78] hover:text-[#500071] underline cursor-pointer"
+                  title="Force all image slides in this playlist to use this duration"
+                >
+                  Apply to all images
+                </button>
+              </div>
               <input
                 type="number"
-                min={3}
-                max={120}
+                min={1}
+                max={300}
                 value={defaultDuration}
-                onChange={(e) => setDefaultDuration(Math.max(3, Number(e.target.value) || 10))}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  const newDuration = isNaN(val) ? 1 : Math.max(1, Math.min(300, val));
+                  setDefaultDuration(newDuration);
+                  // Automatically cascade to all image slides in real time
+                  setItems((prev) =>
+                    prev.map((it) => {
+                      const media = getMediaById(it.mediaId);
+                      if (!media || media.type === 'Image') {
+                        return { ...it, displayDurationSeconds: newDuration };
+                      }
+                      return it;
+                    })
+                  );
+                }}
                 className="w-full px-3 py-2 text-xs font-mono tabular-nums border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
               />
+              <p className="text-[10px] text-[#645573] mt-1">
+                Updates all image slides in real time. Total Loop recalculates automatically.
+              </p>
             </div>
           </div>
 
-          {/* Playback Toggles */}
-          <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 rounded-lg bg-[#FAF8FC] border border-[#E8E2EE] text-xs">
+          {/* Playback Toggles & Loop Duration Controls */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 px-4 py-3 rounded-lg bg-[#FAF8FC] border border-[#E8E2EE] text-xs">
+            {/* Left: Toggles */}
             <div className="flex flex-wrap items-center gap-6">
               <label className="inline-flex items-center gap-2 cursor-pointer text-[#290044]">
                 <input
@@ -608,9 +887,58 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                 Loop playlist continuously on Smart TV
               </label>
             </div>
-            <span className="font-mono tabular-nums text-[#500071] font-semibold">
-              Total Loop: {formatDuration(editorTotalDuration)}
-            </span>
+
+            {/* Right: Direct Editable Total Loop Duration */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-[#8A2A78]/40 shadow-xs">
+                <Clock className="w-3.5 h-3.5 text-[#500071]" />
+                <label htmlFor="total-loop-input" className="font-bold text-xs text-[#290044]">
+                  Set Loop Duration:
+                </label>
+                <input
+                  id="total-loop-input"
+                  type="number"
+                  min={items.length || 1}
+                  max={3600}
+                  value={editorTotalDuration}
+                  onChange={(e) => handleSetTotalLoop(parseInt(e.target.value, 10))}
+                  aria-label="Set Total Loop Duration in seconds"
+                  className="w-16 px-2 py-0.5 text-xs font-mono font-bold text-[#500071] text-center border border-[#8A2A78] rounded bg-[#FAF8FC] focus:outline-none focus:ring-2 focus:ring-[#8A2A78]"
+                />
+                <span className="font-mono text-xs font-semibold text-[#500071]">sec</span>
+                <span className="text-[11px] font-mono text-[#645573] bg-[#F1ECF6] px-2 py-0.5 rounded font-semibold">
+                  {formatDuration(editorTotalDuration)}
+                </span>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex items-center gap-1">
+                {[15, 30, 33, 45, 60, 90].map((presetSec) => (
+                  <button
+                    key={presetSec}
+                    type="button"
+                    onClick={() => handleSetTotalLoop(presetSec)}
+                    title={`Set total loop to ${presetSec} seconds`}
+                    className={`px-2 py-1 text-[11px] font-mono font-semibold rounded border transition-colors cursor-pointer ${
+                      editorTotalDuration === presetSec
+                        ? 'bg-[#500071] text-white border-[#500071]'
+                        : 'bg-white text-[#500071] border-[#E8E2EE] hover:bg-[#EEE3B0]/60'
+                    }`}
+                  >
+                    {presetSec}s
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={handleEvenlySplitTotalLoop}
+                  title="Evenly divide the total loop duration across all slides"
+                  className="px-2 py-1 text-[11px] font-semibold text-[#8A2A78] bg-white border border-[#E8E2EE] rounded hover:bg-[#FAF8FC] hover:border-[#8A2A78] transition-colors cursor-pointer ml-1"
+                >
+                  Split Evenly
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Two-Column Builder: Sortable Sequence vs Media Library Picker */}
@@ -712,6 +1040,27 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                 </span>
               </div>
 
+              <div className="flex items-center gap-1.5">
+                {(['All', '16:9', '9:16'] as const).map((ratioOpt) => (
+                  <button
+                    key={ratioOpt}
+                    type="button"
+                    onClick={() => setMediaPickerRatioFilter(ratioOpt)}
+                    className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      mediaPickerRatioFilter === ratioOpt
+                        ? 'bg-[#500071] text-white border-[#500071]'
+                        : 'bg-[#FAF8FC] text-[#645573] border-[#E8E2EE] hover:text-[#290044]'
+                    }`}
+                  >
+                    {ratioOpt === 'All'
+                      ? 'All ratios'
+                      : ratioOpt === '16:9'
+                      ? '16:9 TV'
+                      : '9:16 Standy'}
+                  </button>
+                ))}
+              </div>
+
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-[#6E607D] absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -724,39 +1073,54 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
               </div>
 
               <div className="divide-y divide-[#F1ECF6] max-h-68 overflow-y-auto pr-1">
-                {filteredPickerMedia.map((media) => (
-                  <div
-                    key={media.id}
-                    className="py-2 flex items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-12 shrink-0">
-                        <MediaThumbnail
-                          src={media.thumbnailUrl}
-                          alt={media.title}
-                          type={media.type}
-                          accentTone={media.accentTone}
-                          showDuration={false}
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-[#290044] truncate">
-                          {media.title}
-                        </p>
-                        <p className="text-[11px] text-[#645573] truncate">
-                          {media.category} · {media.type}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => addMediaToEditor(media)}
-                      className="px-2.5 py-1 rounded-md bg-[#EEE3B0]/75 text-[#290044] text-[11px] font-semibold hover:bg-[#EEE3B0] shrink-0"
+                {filteredPickerMedia.map((media) => {
+                  const ratio = getMediaAspectRatio(media);
+                  return (
+                    <div
+                      key={media.id}
+                      className="py-2 flex items-center justify-between gap-2"
                     >
-                      + Add
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={ratio === '9:16' ? 'w-7 shrink-0' : 'w-12 shrink-0'}>
+                          <MediaThumbnail
+                            src={media.thumbnailUrl}
+                            alt={media.title}
+                            type={media.type}
+                            aspectRatio={ratio}
+                            accentTone={media.accentTone}
+                            showDuration={false}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs font-semibold text-[#290044] truncate">
+                              {media.title}
+                            </p>
+                            <span
+                              className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                                ratio === '9:16'
+                                  ? 'bg-[#8A2A78]/15 text-[#8A2A78]'
+                                  : 'bg-[#500071]/10 text-[#500071]'
+                              }`}
+                            >
+                              {ratio}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#645573] truncate">
+                            {media.category} · {media.type}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addMediaToEditor(media)}
+                        className="px-2.5 py-1 rounded-md bg-[#EEE3B0]/75 text-[#290044] text-[11px] font-semibold hover:bg-[#EEE3B0] shrink-0"
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -779,6 +1143,89 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Assign Displays Modal */}
+      <Modal
+        isOpen={Boolean(assignPl)}
+        onClose={() => setAssignPl(null)}
+        title={assignPl ? `Assign Displays · ${assignPl.name}` : 'Assign Displays'}
+        subtitle="Select which campus TV screens will broadcast this playlist"
+        size="md"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-[#645573]">
+            Check the boxes below to broadcast <strong>{assignPl?.name}</strong> on those screens. Any un-checked screen will stop playing this playlist.
+          </p>
+
+          <div className="max-h-72 overflow-y-auto space-y-2 border border-[#E8E2EE] rounded-xl p-3 bg-[#FAF8FC]">
+            {(!screens || screens.length === 0) ? (
+              <p className="text-xs text-[#645573] text-center py-4">No campus screens registered yet.</p>
+            ) : (
+              screens.map((scr) => {
+                const isChecked = selectedScreenIds.includes(scr.id);
+                return (
+                  <label
+                    key={scr.id}
+                    className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer text-xs transition-colors ${
+                      isChecked
+                        ? 'border-[#500071] bg-white ring-1 ring-[#500071]'
+                        : 'border-[#E8E2EE] bg-white hover:border-[#8A2A78]/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setSelectedScreenIds((prev) =>
+                            prev.includes(scr.id)
+                              ? prev.filter((id) => id !== scr.id)
+                              : [...prev, scr.id]
+                          );
+                        }}
+                        className="accent-[#500071] w-4 h-4"
+                      />
+                      <div className="min-w-0">
+                        <span className="font-mono font-bold text-[#500071] block">
+                          {scr.id}
+                        </span>
+                        <span className="text-[#290044] font-medium truncate block">
+                          {scr.name}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-[#645573] shrink-0 text-right">
+                      {scr.building} · {scr.floor}
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <span className="text-xs font-mono font-semibold text-[#500071]">
+              {selectedScreenIds.length} display(s) selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAssignPl(null)}
+                className="px-4 py-2 rounded-lg border border-[#E8E2EE] text-xs font-semibold text-[#290044]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveScreenAssignments}
+                className="px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
+              >
+                Save Assignments
+              </button>
+            </div>
+          </div>
+        </div>
       </Modal>
     </div>
   );

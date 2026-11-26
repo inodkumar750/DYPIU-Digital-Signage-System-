@@ -4,6 +4,7 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
+  Download,
   FolderKanban,
   Image as ImageIcon,
   Layers,
@@ -13,6 +14,7 @@ import {
   Monitor,
   Send,
   Settings,
+  Tv,
   Users,
   X,
 } from 'lucide-react';
@@ -41,6 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
 interface SidebarProps {
   activeRoute: PageRoute;
   onNavigate: (route: PageRoute) => void;
+  allowedMenus?: PageRoute[];
   collapsed: boolean;
   onToggleCollapse: () => void;
   mobileOpen: boolean;
@@ -51,12 +54,17 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   activeRoute,
   onNavigate,
+  allowedMenus,
   collapsed,
   onToggleCollapse,
   mobileOpen,
   onCloseMobile,
   offlineCount,
 }) => {
+  const visibleNavItems = allowedMenus
+    ? NAV_ITEMS.filter((item) => allowedMenus.includes(item.id))
+    : NAV_ITEMS;
+
   const handleSelect = (route: PageRoute) => {
     onNavigate(route);
     onCloseMobile();
@@ -68,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="h-16 px-4 flex items-center justify-between border-b border-white/10 shrink-0">
         <button
           type="button"
-          onClick={() => handleSelect('dashboard')}
+          onClick={() => handleSelect(visibleNavItems[0]?.id || 'dashboard')}
           className="flex items-center gap-3 min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EEE3B0] rounded-lg"
         >
           <div className="w-9 h-9 rounded-lg bg-[#500071] border border-[#8A2A78] flex items-center justify-center shrink-0">
@@ -98,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Navigation Links */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1" aria-label="Main navigation">
-        {NAV_ITEMS.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeRoute === item.id;
           return (
@@ -130,6 +138,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           );
         })}
+
+        <div className="pt-3 mt-3 border-t border-white/10">
+          <a
+            href="/CampusCast-TV.apk"
+            download="CampusCast-TV.apk"
+            title={collapsed ? 'Download TV APK (v1.0.4)' : undefined}
+            className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg text-[15px] leading-[1.35] font-semibold bg-[#EEE3B0]/15 text-[#EEE3B0] hover:bg-[#EEE3B0] hover:text-[#290044] transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EEE3B0]"
+          >
+            <span className="flex items-center gap-3 min-w-0">
+              <Tv className="w-[18px] h-[18px] shrink-0" />
+              {!collapsed && <span className="truncate">Download TV APK</span>}
+            </span>
+            {!collapsed && <Download className="w-4 h-4 shrink-0" />}
+          </a>
+        </div>
       </nav>
 
       {/* Collapse Toggle */}
