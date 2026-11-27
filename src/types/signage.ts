@@ -81,6 +81,8 @@ export interface Campaign {
   status: CampaignStatus;
   priority: 'Normal' | 'High' | 'Urgent';
   createdBy: string;
+  qrUrl?: string;
+  qrLabel?: string;
 }
 
 export type ConnectionStatus = 'Online' | 'Offline';

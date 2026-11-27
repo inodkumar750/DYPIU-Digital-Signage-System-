@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS `campaigns` (
   `status` ENUM('Draft', 'Scheduled', 'Active', 'Paused', 'Completed') NOT NULL DEFAULT 'Scheduled',
   `priority` ENUM('Normal', 'High', 'Urgent') NOT NULL DEFAULT 'Normal',
   `created_by` VARCHAR(150) NOT NULL,
+  `qr_url` VARCHAR(500) DEFAULT NULL,
+  `qr_label` VARCHAR(120) DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

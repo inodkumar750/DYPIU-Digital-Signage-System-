@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   Calendar as CalendarIcon,
   Check,
@@ -9,6 +10,7 @@ import {
   Pause,
   Play,
   Plus,
+  QrCode,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -99,6 +101,32 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
   const [cmpEndDate, setCmpEndDate] = useState(defaultNextWeek);
   const [cmpStartTime, setCmpStartTime] = useState('08:00');
   const [cmpEndTime, setCmpEndTime] = useState('22:00');
+  const [cmpQrUrl, setCmpQrUrl] = useState('');
+  const [cmpQrLabel, setCmpQrLabel] = useState('');
+  const [qrPreviewUrl, setQrPreviewUrl] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const val = cmpQrUrl.trim();
+    if (!val) {
+      setQrPreviewUrl('');
+      return;
+    }
+    QRCode.toDataURL(val, {
+      width: 180,
+      margin: 1,
+      color: { dark: '#111827', light: '#FFFFFF' },
+    })
+      .then((url) => {
+        if (!cancelled) setQrPreviewUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setQrPreviewUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cmpQrUrl]);
 
   useEffect(() => {
     if (openWizardSignal > 0) {
@@ -122,6 +150,8 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
     setCmpEndDate(nextWeek);
     setCmpStartTime('08:00');
     setCmpEndTime('22:00');
+    setCmpQrUrl('');
+    setCmpQrLabel('');
     setWizardOpen(true);
   };
 
@@ -139,6 +169,8 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
     setCmpEndDate(cmp.endDate);
     setCmpStartTime(cmp.startTime);
     setCmpEndTime(cmp.endTime);
+    setCmpQrUrl(cmp.qrUrl || '');
+    setCmpQrLabel(cmp.qrLabel || '');
     setWizardOpen(true);
   };
 
@@ -217,6 +249,8 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
       status: targetStatus,
       priority: cmpPriority,
       createdBy: 'Vinod Kumar Jain',
+      qrUrl: cmpQrUrl.trim() || undefined,
+      qrLabel: cmpQrLabel.trim() || undefined,
     };
     onSaveCampaign(newCmp);
     setWizardOpen(false);
@@ -375,7 +409,18 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                   filteredCampaigns.map((cmp) => (
                     <tr key={cmp.id} className="hover:bg-[#FAF8FC] transition-colors">
                       <td className="py-3.5 px-4">
-                        <p className="font-semibold text-[#290044]">{cmp.name}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-[#290044]">{cmp.name}</p>
+                          {cmp.qrUrl && (
+                            <span
+                              title={`TV QR Overlay: ${cmp.qrUrl}`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#EEE3B0]/60 text-[#500071] text-[10px] font-semibold"
+                            >
+                              <QrCode className="w-3 h-3" />
+                              QR
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[11px] text-[#645573] truncate max-w-xs">
                           {cmp.description}
                         </p>
@@ -634,6 +679,62 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                   <option value="Urgent">Urgent (Campus Priority Override)</option>
                 </select>
               </div>
+
+              {/* Optional TV QR Code Overlay */}
+              <div className="p-4 rounded-xl border border-[#E8E2EE] bg-[#FAF8FC] space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <QrCode className="w-4 h-4 text-[#500071]" />
+                    <span className="text-xs font-bold text-[#290044]">
+                      TV QR Code Overlay (Optional)
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-[#645573]">
+                    Leave blank for standard campaigns
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 items-start">
+                  <div className="flex-1 w-full space-y-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-[#290044] mb-1">
+                        Destination Link / URL (Optional)
+                      </label>
+                      <input
+                        type="url"
+                        value={cmpQrUrl}
+                        onChange={(e) => setCmpQrUrl(e.target.value)}
+                        placeholder="https://dypiu.ac.in/... or Google Form link"
+                        className="w-full px-3 py-2 text-xs bg-white border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-[#290044] mb-1">
+                        QR Caption Below Code (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={40}
+                        value={cmpQrLabel}
+                        onChange={(e) => setCmpQrLabel(e.target.value)}
+                        placeholder="e.g., Scan to Register"
+                        className="w-full px-3 py-2 text-xs bg-white border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                      />
+                    </div>
+                  </div>
+                  {qrPreviewUrl && (
+                    <div className="shrink-0 bg-white border border-[#E8E2EE] rounded-xl p-2 text-center w-28">
+                      <img
+                        src={qrPreviewUrl}
+                        alt="Campaign QR preview"
+                        className="w-24 h-24 mx-auto block"
+                      />
+                      <p className="text-[10px] font-bold text-[#290044] mt-1 truncate">
+                        {cmpQrLabel.trim() || 'Scan QR Code'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -813,9 +914,28 @@ export const CampaignsPage: React.FC<CampaignsPageProps> = ({
                     {cmpScreenIds.length} campus displays ({cmpPriority} Priority)
                   </p>
                 </div>
+                <div className="sm:col-span-2 flex items-center justify-between gap-4 pt-2 border-t border-[#E8E2EE]">
+                  <div className="min-w-0">
+                    <p className="text-[#645573]">TV QR Code Overlay</p>
+                    {cmpQrUrl.trim() ? (
+                      <p className="font-mono text-[#500071] font-semibold mt-0.5 truncate">
+                        {cmpQrLabel.trim() || 'Scan QR Code'} → {cmpQrUrl.trim()}
+                      </p>
+                    ) : (
+                      <p className="text-[#645573] mt-0.5">None (standard campaign)</p>
+                    )}
+                  </div>
+                  {qrPreviewUrl && (
+                    <img
+                      src={qrPreviewUrl}
+                      alt="QR Preview"
+                      className="w-14 h-14 rounded-lg border border-[#E8E2EE] bg-white p-1 shrink-0"
+                    />
+                  )}
+                </div>
               </div>
               <p className="text-[11px] text-[#645573] border-t border-[#E8E2EE] pt-3">
-                Simulated prototype action: Publishing saves this campaign locally and queues it for display distribution.
+                Scheduling saves directly to MySQL and automatically displays on the selected TVs during the scheduled window.
               </p>
             </div>
           )}

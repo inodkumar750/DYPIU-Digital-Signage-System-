@@ -28,6 +28,8 @@ router.get('/', async (req, res) => {
         status: c.status,
         priority: c.priority,
         createdBy: c.created_by,
+        qrUrl: c.qr_url || '',
+        qrLabel: c.qr_label || '',
       };
     });
 
@@ -40,16 +42,48 @@ router.get('/', async (req, res) => {
 // POST create or update campaign
 router.post('/', async (req, res) => {
   try {
-    const { id, name, description, playlistId, startDate, endDate, startTime, endTime, targetScreenIds, targetGroupIds, status, priority, createdBy } = req.body;
+    const {
+      id,
+      name,
+      description,
+      playlistId,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      targetScreenIds,
+      targetGroupIds,
+      status,
+      priority,
+      createdBy,
+      qrUrl,
+      qrLabel,
+    } = req.body;
     const cmpId = id || `cmp-${Date.now().toString().slice(-4)}`;
+    const cleanQrUrl = typeof qrUrl === 'string' ? qrUrl.trim() : '';
+    const cleanQrLabel = typeof qrLabel === 'string' ? qrLabel.trim() : '';
 
     await pool.query(
-      `INSERT INTO campaigns (id, name, description, playlist_id, start_date, end_date, start_time, end_time, status, priority, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO campaigns (id, name, description, playlist_id, start_date, end_date, start_time, end_time, status, priority, created_by, qr_url, qr_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), playlist_id=VALUES(playlist_id),
        start_date=VALUES(start_date), end_date=VALUES(end_date), start_time=VALUES(start_time), end_time=VALUES(end_time),
-       status=VALUES(status), priority=VALUES(priority)`,
-      [cmpId, name, description || '', playlistId, startDate, endDate, startTime, endTime, status || 'Scheduled', priority || 'Normal', createdBy || 'Vinod Kumar Jain']
+       status=VALUES(status), priority=VALUES(priority), qr_url=VALUES(qr_url), qr_label=VALUES(qr_label)`,
+      [
+        cmpId,
+        name,
+        description || '',
+        playlistId,
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        status || 'Scheduled',
+        priority || 'Normal',
+        createdBy || 'Vinod Kumar Jain',
+        cleanQrUrl || null,
+        cleanQrLabel || null,
+      ]
     );
 
     // Update targets

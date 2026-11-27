@@ -20,16 +20,19 @@ import {
   Trash2,
   Tv,
 } from 'lucide-react';
-import { MediaAsset, Playlist, ScreenDevice } from '../types/signage';
+import { Campaign, MediaAsset, Playlist, ScreenDevice, ScreenGroup } from '../types/signage';
 import { CAMPUS_BUILDINGS, CAMPUS_FLOORS } from '../data/mockSignageData';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { Modal } from '../components/ui/Modal';
 import { MediaThumbnail, formatDuration } from '../components/ui/MediaThumbnail';
+import { resolveActiveCampaignForScreen } from '../utils/campaignSchedule';
 
 interface ScreenManagementPageProps {
   screens: ScreenDevice[];
   playlists: Playlist[];
   mediaAssets: MediaAsset[];
+  campaigns?: Campaign[];
+  groups?: ScreenGroup[];
   openAddSignal: number;
   onAddScreen: (screen: ScreenDevice) => void;
   onUpdateScreen: (screen: ScreenDevice) => void;
@@ -42,6 +45,8 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
   screens,
   playlists,
   mediaAssets,
+  campaigns = [],
+  groups = [],
   openAddSignal,
   onAddScreen,
   onUpdateScreen,
@@ -405,10 +410,10 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-[#E8E2EE] bg-[#FAF8FC] text-[11px] font-semibold text-[#645573]">
+              <tr className="border-b border-[#E8E2EE] bg-[#FAF8FC] text-[11px] font-semibold text-[#645573] whitespace-nowrap">
                 <th className="py-3 px-4">Screen ID</th>
-                <th className="py-3 px-4">Screen Name</th>
-                <th className="py-3 px-4">Building & Floor</th>
+                <th className="py-3 px-4 min-w-[230px]">Screen Name</th>
+                <th className="py-3 px-4">Building &amp; Floor</th>
                 <th className="py-3 px-4">Device Type</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Last Seen</th>
@@ -427,9 +432,13 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
                   <td className="py-3 px-4 font-mono font-semibold text-[#500071] whitespace-nowrap">
                     {scr.id}
                   </td>
-                  <td className="py-3 px-4">
-                    <p className="font-semibold text-[#290044]">{scr.name}</p>
-                    <p className="text-[11px] text-[#645573]">{scr.location}</p>
+                  <td className="py-3 px-4 min-w-[230px]">
+                    <p className="font-semibold text-[#290044] whitespace-nowrap">
+                      {scr.name}
+                    </p>
+                    <p className="text-[11px] text-[#645573] whitespace-nowrap">
+                      {scr.location}
+                    </p>
                   </td>
                   <td className="py-3 px-4 text-[#290044] whitespace-nowrap">
                     {scr.building} · <span className="text-[#645573]">{scr.floor}</span>
@@ -437,7 +446,7 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
                   <td className="py-3 px-4 text-[#645573] whitespace-nowrap">
                     {scr.deviceType}
                   </td>
-                  <td className="py-3 px-4">
+                  <td className="py-3 px-4 whitespace-nowrap">
                     <StatusBadge status={scr.isActive ? scr.connectionStatus : 'Standby'} />
                   </td>
                   <td className="py-3 px-4 font-mono tabular-nums text-[#645573] whitespace-nowrap">
@@ -445,16 +454,39 @@ export const ScreenManagementPage: React.FC<ScreenManagementPageProps> = ({
                   </td>
                   <td className="py-3 px-4">
                     {(() => {
-                      const assignedPlaylist = getPlaylist(scr.assignedPlaylistId);
-                      if (!assignedPlaylist) {
+                      const liveCampaign = resolveActiveCampaignForScreen(scr.id, campaigns, groups);
+                      const scheduledCampaign =
+                        liveCampaign ||
+                        campaigns.find(
+                          (c) =>
+                            (c.status === 'Active' || c.status === 'Scheduled') &&
+                            (c.targetScreenIds.includes(scr.id) ||
+                              (c.targetGroupIds || []).some((gid) =>
+                                groups.find((g) => g.id === gid)?.screenIds.includes(scr.id)
+                              ))
+                        ) ||
+                        null;
+                      const assignedPlaylist = getPlaylist(
+                        liveCampaign?.playlistId || scr.assignedPlaylistId
+                      );
+                      if (!assignedPlaylist && !scheduledCampaign) {
                         return <span className="text-[#6E607D]">Unassigned</span>;
                       }
                       return (
-                        <div className="min-w-[190px]">
-                          <p className="text-[#500071] font-medium leading-snug">
-                            {assignedPlaylist.name}
-                          </p>
-                          {renderMiniMediaFeed(assignedPlaylist, 4, true)}
+                        <div className="min-w-[190px] space-y-1">
+                          {assignedPlaylist && (
+                            <p className="text-[#500071] font-medium leading-snug">
+                              {assignedPlaylist.name}
+                            </p>
+                          )}
+                          {scheduledCampaign && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#EEE3B0]/65 text-[#500071] text-[10px] font-semibold whitespace-nowrap">
+                              <QrCode className="w-3 h-3" />
+                              {liveCampaign ? 'Live' : `${scheduledCampaign.startTime}–${scheduledCampaign.endTime}`} · {scheduledCampaign.name}
+                              {scheduledCampaign.qrUrl?.trim() ? ' (QR)' : ''}
+                            </span>
+                          )}
+                          {assignedPlaylist && renderMiniMediaFeed(assignedPlaylist, 4, true)}
                         </div>
                       );
                     })()}

@@ -13,6 +13,7 @@ import usersRouter from './routes/users.js';
 import authRouter from './routes/auth.js';
 import settingsRouter from './routes/settings.js';
 import deviceRouter from './routes/device.js';
+import { pool } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,8 +75,24 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/settings', settingsRouter);
 app.use('/api/v1/device', deviceRouter);
 
+// Ensure optional QR campaign columns exist on live database
+async function ensureCampaignQrColumns() {
+  try {
+    const [cols] = await pool.query("SHOW COLUMNS FROM campaigns LIKE 'qr_url'");
+    if (cols.length === 0) {
+      await pool.query(
+        'ALTER TABLE campaigns ADD COLUMN qr_url VARCHAR(500) DEFAULT NULL, ADD COLUMN qr_label VARCHAR(120) DEFAULT NULL'
+      );
+      console.log('✅ Added optional qr_url & qr_label columns to campaigns table');
+    }
+  } catch (err) {
+    console.warn('⚠️ Could not verify campaigns QR columns:', err.message);
+  }
+}
+
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
+  await ensureCampaignQrColumns();
   console.log(`🚀 CampusCast Backend running at: http://localhost:${PORT}`);
   console.log(`📺 Android TV Sync Manifest: http://localhost:${PORT}/api/v1/device/:screenId/manifest`);
   console.log(`📡 TV Heartbeat Ingest:      http://localhost:${PORT}/api/v1/device/:screenId/heartbeat`);

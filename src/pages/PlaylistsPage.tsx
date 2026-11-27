@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   DndContext,
   DragEndEvent,
@@ -17,26 +18,31 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import {
+  Calendar,
   Clock,
   Edit3,
   Monitor,
   Pause,
   Play,
   Plus,
+  QrCode,
   Search,
   SkipBack,
   SkipForward,
   Smartphone,
   Trash2,
   Tv,
+  X,
 } from 'lucide-react';
 import {
+  Campaign,
   MediaAspectRatio,
   MediaAsset,
   Playlist,
   PlaylistItem,
   PlaylistStatus,
   ScreenDevice,
+  ScreenGroup,
 } from '../types/signage';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { MediaThumbnail, formatDuration } from '../components/ui/MediaThumbnail';
@@ -45,25 +51,34 @@ import {
   DragOverlayCard,
   SortablePlaylistItem,
 } from '../components/playlists/SortablePlaylistItem';
+import { getLocalDateStr, isCampaignInWindow, isCampaignLiveNow } from '../utils/campaignSchedule';
 
 interface PlaylistsPageProps {
   playlists: Playlist[];
   screens?: ScreenDevice[];
   mediaAssets: MediaAsset[];
+  campaigns?: Campaign[];
+  groups?: ScreenGroup[];
   openCreateSignal: number;
   onSavePlaylist: (playlist: Playlist) => void;
   onDeletePlaylist: (id: string) => void;
   onAssignScreens?: (playlistId: string, screenIds: string[]) => void;
+  onSchedulePlaylist?: (campaign: Campaign) => void;
+  onDeleteSchedule?: (id: string) => void;
 }
 
 export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
   playlists,
   screens = [],
   mediaAssets,
+  campaigns = [],
+  groups = [],
   openCreateSignal,
   onSavePlaylist,
   onDeletePlaylist,
   onAssignScreens,
+  onSchedulePlaylist,
+  onDeleteSchedule,
 }) => {
   const [selectedPreviewPlaylistId, setSelectedPreviewPlaylistId] = useState<string>(
     playlists[0]?.id || ''
@@ -74,6 +89,24 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
   // Assign Displays Modal State
   const [assignPl, setAssignPl] = useState<Playlist | null>(null);
   const [selectedScreenIds, setSelectedScreenIds] = useState<string[]>([]);
+  const [assignBuildingFilter, setAssignBuildingFilter] = useState('All');
+  const [assignFloorFilter, setAssignFloorFilter] = useState('All');
+
+  // Schedule Playlist Modal State
+  const [schedulePl, setSchedulePl] = useState<Playlist | null>(null);
+  const [schedName, setSchedName] = useState('');
+  const [schedBuilding, setSchedBuilding] = useState('All');
+  const [schedFloor, setSchedFloor] = useState('All');
+  const [schedGroupIds, setSchedGroupIds] = useState<string[]>([]);
+  const [schedScreenIds, setSchedScreenIds] = useState<string[]>([]);
+  const [schedStartDate, setSchedStartDate] = useState(() => getLocalDateStr());
+  const [schedEndDate, setSchedEndDate] = useState(() => getLocalDateStr(new Date(Date.now() + 7 * 86400000)));
+  const [schedStartTime, setSchedStartTime] = useState('08:00');
+  const [schedEndTime, setSchedEndTime] = useState('22:00');
+  const [schedPriority, setSchedPriority] = useState<'Normal' | 'High' | 'Urgent'>('High');
+  const [schedQrUrl, setSchedQrUrl] = useState('');
+  const [schedQrLabel, setSchedQrLabel] = useState('');
+  const [schedError, setSchedError] = useState('');
 
   // Editor State
   const [name, setName] = useState('');
@@ -118,6 +151,42 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     () => (previewPlaylist ? screens.filter((s) => s.assignedPlaylistId === previewPlaylist.id) : []),
     [screens, previewPlaylist]
   );
+
+  // Match any Active/Scheduled QR Campaign linked to this playlist (prioritize live now, fallback to scheduled)
+  const previewQrCampaign = React.useMemo(() => {
+    if (!previewPlaylist) return null;
+    const candidates = campaigns.filter(
+      (c) =>
+        c.playlistId === previewPlaylist.id &&
+        (c.status === 'Active' || c.status === 'Scheduled') &&
+        Boolean(c.qrUrl && c.qrUrl.trim())
+    );
+    return candidates.find((c) => isCampaignLiveNow(c)) || candidates[0] || null;
+  }, [campaigns, previewPlaylist]);
+
+  const [previewQrDataUrl, setPreviewQrDataUrl] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    const url = previewQrCampaign?.qrUrl?.trim();
+    if (!url) {
+      setPreviewQrDataUrl('');
+      return;
+    }
+    QRCode.toDataURL(url, {
+      width: 180,
+      margin: 1,
+      color: { dark: '#111827', light: '#FFFFFF' },
+    })
+      .then((res) => {
+        if (!cancelled) setPreviewQrDataUrl(res);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewQrDataUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewQrCampaign?.qrUrl]);
 
   const getMediaById = (id: string) => mediaAssets.find((m) => m.id === id);
 
@@ -253,6 +322,8 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
 
   const openAssignModal = (pl: Playlist) => {
     setAssignPl(pl);
+    setAssignBuildingFilter('All');
+    setAssignFloorFilter('All');
     const linked = screens.filter((s) => s.assignedPlaylistId === pl.id).map((s) => s.id);
     setSelectedScreenIds(linked);
   };
@@ -262,6 +333,77 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
     onAssignScreens(assignPl.id, selectedScreenIds);
     setAssignPl(null);
   };
+
+  const openScheduleModal = (pl: Playlist) => {
+    const today = getLocalDateStr();
+    const nextWeek = getLocalDateStr(new Date(Date.now() + 7 * 86400000));
+    const linked = screens.filter((s) => s.assignedPlaylistId === pl.id).map((s) => s.id);
+    setSchedulePl(pl);
+    setSchedName(`${pl.name} Schedule`);
+    setSchedBuilding('All');
+    setSchedFloor('All');
+    setSchedGroupIds([]);
+    setSchedScreenIds(linked);
+    setSchedStartDate(today);
+    setSchedEndDate(nextWeek);
+    setSchedStartTime('08:00');
+    setSchedEndTime('22:00');
+    setSchedPriority('High');
+    setSchedQrUrl('');
+    setSchedQrLabel('');
+    setSchedError('');
+  };
+
+  const handleSaveSchedule = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!schedulePl || !onSchedulePlaylist) return;
+    if (schedScreenIds.length === 0) {
+      setSchedError('Select at least one screen (or click "Select All Showing" for a floor).');
+      return;
+    }
+    if (!schedStartDate || !schedEndDate || schedEndDate < schedStartDate) {
+      setSchedError('End date must be on or after start date.');
+      return;
+    }
+    const statusComputed = isCampaignInWindow({
+      startDate: schedStartDate,
+      endDate: schedEndDate,
+      startTime: schedStartTime,
+      endTime: schedEndTime,
+    })
+      ? 'Active'
+      : 'Scheduled';
+    const floorTag = schedFloor !== 'All' ? `${schedFloor}` : `${schedScreenIds.length} screens`;
+    const newCmp: Campaign = {
+      id: `cmp-${Date.now().toString().slice(-4)}`,
+      name: schedName.trim() || `${schedulePl.name} (${floorTag})`,
+      description: `Scheduled playlist playback (${schedBuilding !== 'All' ? schedBuilding + ' · ' : ''}${floorTag})`,
+      playlistId: schedulePl.id,
+      startDate: schedStartDate,
+      endDate: schedEndDate,
+      startTime: schedStartTime,
+      endTime: schedEndTime,
+      targetScreenIds: schedScreenIds,
+      targetGroupIds: schedGroupIds,
+      status: statusComputed,
+      priority: schedPriority,
+      createdBy: 'Vinod Kumar Jain',
+      qrUrl: schedQrUrl.trim() || undefined,
+      qrLabel: schedQrLabel.trim() || undefined,
+    };
+    onSchedulePlaylist(newCmp);
+    setSchedulePl(null);
+  };
+
+  const allBuildings = ['All', ...Array.from(new Set(screens.map((s) => s.building).filter(Boolean)))];
+  const allFloors = ['All', ...Array.from(new Set(screens.map((s) => s.floor).filter(Boolean)))];
+
+  const filterScreensByLocation = (buildingVal: string, floorVal: string) =>
+    screens.filter(
+      (s) =>
+        (buildingVal === 'All' || s.building === buildingVal) &&
+        (floorVal === 'All' || s.floor === floorVal)
+    );
 
   const activeDragItem = activeDragId
     ? items.find((it) => it.id === activeDragId)
@@ -434,9 +576,22 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
               >
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="type-card-title text-[#290044]">
-                      {pl.name}
-                    </h3>
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <h3 className="type-card-title text-[#290044]">
+                        {pl.name}
+                      </h3>
+                      {campaigns.some(
+                        (c) =>
+                          c.playlistId === pl.id &&
+                          (c.status === 'Active' || c.status === 'Scheduled') &&
+                          Boolean(c.qrUrl?.trim())
+                      ) && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#EEE3B0]/70 text-[#500071] text-[10px] font-semibold">
+                          <QrCode className="w-3 h-3" />
+                          QR
+                        </span>
+                      )}
+                    </div>
                     <StatusBadge status={pl.status} />
                   </div>
                   <p className="type-support text-[#645573] line-clamp-2">{pl.description}</p>
@@ -471,7 +626,7 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                   <span className="text-[#6E607D] font-mono">
                     Updated {pl.lastUpdated}
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => setSelectedPreviewPlaylistId(pl.id)}
@@ -486,11 +641,21 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                     <button
                       type="button"
                       onClick={() => openAssignModal(pl)}
-                      className="p-1.5 rounded-md text-[#500071] hover:bg-[#EEE3B0]/40 transition-colors"
+                      className="p-1.5 rounded-md text-[#500071] hover:bg-[#EEE3B0]/40 transition-colors cursor-pointer"
                       title="Assign / Unassign TV screens for this playlist"
                     >
                       <Tv className="w-3.5 h-3.5" />
                     </button>
+                    {onSchedulePlaylist && (
+                      <button
+                        type="button"
+                        onClick={() => openScheduleModal(pl)}
+                        className="p-1.5 rounded-md text-[#8A2A78] hover:bg-[#EEE3B0]/40 transition-colors cursor-pointer"
+                        title="Schedule playlist by Building, Floor, Screen & Time"
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openEditModal(pl)}
@@ -509,6 +674,42 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {(() => {
+                  const plSchedules = campaigns.filter(
+                    (c) =>
+                      c.playlistId === pl.id &&
+                      (c.status === 'Active' || c.status === 'Scheduled')
+                  );
+                  if (plSchedules.length === 0) return null;
+                  return (
+                    <div className="pt-2 border-t border-[#F1ECF6] space-y-1">
+                      {plSchedules.map((sc) => (
+                        <div
+                          key={sc.id}
+                          className="flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-[#FAF8FC] border border-[#E8E2EE] text-[10px]"
+                        >
+                          <span className="truncate font-medium text-[#500071]">
+                            <strong className="font-mono">
+                              {isCampaignLiveNow(sc) ? 'LIVE' : `${sc.startTime}–${sc.endTime}`}
+                            </strong>{' '}
+                            · {sc.name} ({sc.targetScreenIds.length} TVs)
+                          </span>
+                          {onDeleteSchedule && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteSchedule(sc.id)}
+                              title="Remove this schedule"
+                              className="text-[#645573] hover:text-rose-600 shrink-0 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -590,6 +791,20 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
             </div>
           </div>
 
+          {previewQrCampaign && (
+            <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[#EEE3B0]/35 border border-[#EEE3B0] text-[11px]">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-[#500071] truncate">
+                <QrCode className="w-3.5 h-3.5 shrink-0" />
+                QR Campaign: {previewQrCampaign.name}
+              </span>
+              <span className="font-mono text-[10px] text-[#290044] shrink-0">
+                {isCampaignLiveNow(previewQrCampaign)
+                  ? 'Live now'
+                  : `${previewQrCampaign.startTime}–${previewQrCampaign.endTime}`}
+              </span>
+            </div>
+          )}
+
           {/* TV / Standy Bezel */}
           <div
             className={
@@ -623,6 +838,18 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
                       className="w-full h-full rounded-none border-0"
                       showDuration={false}
                     />
+                    {previewQrDataUrl && previewQrCampaign && (
+                      <div className="absolute bottom-14 right-2.5 z-10 bg-white/95 rounded-xl p-1.5 shadow-lg border border-[#500071]/25 text-center max-w-[84px]">
+                        <img
+                          src={previewQrDataUrl}
+                          alt={previewQrCampaign.qrLabel || 'Campaign QR'}
+                          className="w-14 h-14 mx-auto block rounded"
+                        />
+                        <p className="mt-0.5 text-[8px] font-bold text-[#290044] leading-tight line-clamp-2">
+                          {previewQrCampaign.qrLabel || 'Scan QR Code'}
+                        </p>
+                      </div>
+                    )}
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-3.5 text-white">
                       <div className="flex items-end justify-between gap-2">
                         <div className="min-w-0">
@@ -1145,87 +1372,473 @@ export const PlaylistsPage: React.FC<PlaylistsPageProps> = ({
         </form>
       </Modal>
 
-      {/* Assign Displays Modal */}
+      {/* Assign Displays Modal (with Building & Floor Filter) */}
       <Modal
         isOpen={Boolean(assignPl)}
         onClose={() => setAssignPl(null)}
         title={assignPl ? `Assign Displays · ${assignPl.name}` : 'Assign Displays'}
-        subtitle="Select which campus TV screens will broadcast this playlist"
+        subtitle="Filter by Building & Floor or select individual campus screens"
         size="md"
       >
-        <div className="space-y-4">
-          <p className="text-xs text-[#645573]">
-            Check the boxes below to broadcast <strong>{assignPl?.name}</strong> on those screens. Any un-checked screen will stop playing this playlist.
-          </p>
+        {(() => {
+          const filteredAssignScreens = filterScreensByLocation(
+            assignBuildingFilter,
+            assignFloorFilter
+          );
+          return (
+            <div className="space-y-4">
+              <p className="text-xs text-[#645573]">
+                Check the boxes below to broadcast <strong>{assignPl?.name}</strong> permanently on those screens. Any un-checked screen will stop playing this playlist.
+              </p>
 
-          <div className="max-h-72 overflow-y-auto space-y-2 border border-[#E8E2EE] rounded-xl p-3 bg-[#FAF8FC]">
-            {(!screens || screens.length === 0) ? (
-              <p className="text-xs text-[#645573] text-center py-4">No campus screens registered yet.</p>
-            ) : (
-              screens.map((scr) => {
-                const isChecked = selectedScreenIds.includes(scr.id);
-                return (
-                  <label
-                    key={scr.id}
-                    className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer text-xs transition-colors ${
-                      isChecked
-                        ? 'border-[#500071] bg-white ring-1 ring-[#500071]'
-                        : 'border-[#E8E2EE] bg-white hover:border-[#8A2A78]/50'
-                    }`}
+              {/* Building & Floor Quick Filters */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <select
+                  value={assignBuildingFilter}
+                  onChange={(e) => setAssignBuildingFilter(e.target.value)}
+                  aria-label="Filter displays by building"
+                  className="px-2.5 py-2 bg-[#FAF8FC] border border-[#E8E2EE] rounded-lg text-[#290044]"
+                >
+                  {allBuildings.map((b) => (
+                    <option key={b} value={b}>
+                      {b === 'All' ? 'All Buildings' : b}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={assignFloorFilter}
+                  onChange={(e) => setAssignFloorFilter(e.target.value)}
+                  aria-label="Filter displays by floor"
+                  className="px-2.5 py-2 bg-[#FAF8FC] border border-[#E8E2EE] rounded-lg text-[#290044]"
+                >
+                  {allFloors.map((f) => (
+                    <option key={f} value={f}>
+                      {f === 'All' ? 'All Floors' : f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {filteredAssignScreens.length > 0 && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#645573]">
+                    Showing {filteredAssignScreens.length} matching screen(s)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedScreenIds(filteredAssignScreens.map((s) => s.id))
+                      }
+                      className="font-semibold text-[#500071] hover:underline cursor-pointer"
+                    >
+                      Only Showing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedScreenIds((prev) =>
+                          Array.from(new Set([...prev, ...filteredAssignScreens.map((s) => s.id)]))
+                        )
+                      }
+                      className="font-semibold text-[#8A2A78] hover:underline cursor-pointer"
+                    >
+                      + Add Showing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedScreenIds([])}
+                      className="font-semibold text-[#645573] hover:text-rose-600 cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="max-h-72 overflow-y-auto space-y-2 border border-[#E8E2EE] rounded-xl p-3 bg-[#FAF8FC]">
+                {filteredAssignScreens.length === 0 ? (
+                  <p className="text-xs text-[#645573] text-center py-4">
+                    No screens match the selected building/floor filter.
+                  </p>
+                ) : (
+                  filteredAssignScreens.map((scr) => {
+                    const isChecked = selectedScreenIds.includes(scr.id);
+                    return (
+                      <label
+                        key={scr.id}
+                        className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer text-xs transition-colors ${
+                          isChecked
+                            ? 'border-[#500071] bg-white ring-1 ring-[#500071]'
+                            : 'border-[#E8E2EE] bg-white hover:border-[#8A2A78]/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setSelectedScreenIds((prev) =>
+                                prev.includes(scr.id)
+                                  ? prev.filter((id) => id !== scr.id)
+                                  : [...prev, scr.id]
+                              );
+                            }}
+                            className="accent-[#500071] w-4 h-4"
+                          />
+                          <div className="min-w-0">
+                            <span className="font-mono font-bold text-[#500071] block">
+                              {scr.id}
+                            </span>
+                            <span className="text-[#290044] font-medium truncate block">
+                              {scr.name}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[11px] text-[#645573] shrink-0 text-right">
+                          {scr.building} · {scr.floor}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-xs font-mono font-semibold text-[#500071]">
+                  {selectedScreenIds.length} display(s) selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignPl(null)}
+                    className="px-4 py-2 rounded-lg border border-[#E8E2EE] text-xs font-semibold text-[#290044]"
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          setSelectedScreenIds((prev) =>
-                            prev.includes(scr.id)
-                              ? prev.filter((id) => id !== scr.id)
-                              : [...prev, scr.id]
-                          );
-                        }}
-                        className="accent-[#500071] w-4 h-4"
-                      />
-                      <div className="min-w-0">
-                        <span className="font-mono font-bold text-[#500071] block">
-                          {scr.id}
-                        </span>
-                        <span className="text-[#290044] font-medium truncate block">
-                          {scr.name}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-[11px] text-[#645573] shrink-0 text-right">
-                      {scr.building} · {scr.floor}
-                    </span>
-                  </label>
-                );
-              })
-            )}
-          </div>
-
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-xs font-mono font-semibold text-[#500071]">
-              {selectedScreenIds.length} display(s) selected
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setAssignPl(null)}
-                className="px-4 py-2 rounded-lg border border-[#E8E2EE] text-xs font-semibold text-[#290044]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveScreenAssignments}
-                className="px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
-              >
-                Save Assignments
-              </button>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveScreenAssignments}
+                    className="px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78]"
+                  >
+                    Save Assignments
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Schedule Playlist by Floor, Screen & Time Modal */}
+      <Modal
+        isOpen={Boolean(schedulePl)}
+        onClose={() => setSchedulePl(null)}
+        title={schedulePl ? `Schedule Playlist · ${schedulePl.name}` : 'Schedule Playlist'}
+        subtitle="Select Building, Floor, TV Screens, and Date/Time Window"
+        size="lg"
+      >
+        {schedulePl && (() => {
+          const filteredSchedScreens = filterScreensByLocation(schedBuilding, schedFloor);
+          return (
+            <form onSubmit={handleSaveSchedule} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#290044] mb-1">
+                    Schedule Name
+                  </label>
+                  <input
+                    type="text"
+                    value={schedName}
+                    onChange={(e) => setSchedName(e.target.value)}
+                    placeholder="e.g., First Floor Morning Rotation"
+                    className="w-full px-3 py-2 text-xs border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#290044] mb-1">
+                    Priority
+                  </label>
+                  <select
+                    value={schedPriority}
+                    onChange={(e) =>
+                      setSchedPriority(e.target.value as 'Normal' | 'High' | 'Urgent')
+                    }
+                    className="w-full px-3 py-2 text-xs border border-[#E8E2EE] rounded-lg focus:outline-none focus:border-[#8A2A78]"
+                  >
+                    <option value="Normal">Normal</option>
+                    <option value="High">High (Overrides default playlist)</option>
+                    <option value="Urgent">Urgent (Campus override)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Select by Building, Floor, Groups & Screens */}
+              <div className="p-3.5 rounded-xl border border-[#E8E2EE] bg-[#FAF8FC] space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-[#290044]">
+                    Select Building, Floor &amp; TV Screens
+                  </span>
+                  <span className="text-[11px] font-mono font-semibold text-[#500071]">
+                    {schedScreenIds.length} screen(s) selected
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <select
+                    value={schedBuilding}
+                    onChange={(e) => setSchedBuilding(e.target.value)}
+                    aria-label="Schedule filter by building"
+                    className="px-2.5 py-2 bg-white border border-[#E8E2EE] rounded-lg text-[#290044]"
+                  >
+                    {allBuildings.map((b) => (
+                      <option key={b} value={b}>
+                        {b === 'All' ? 'All Buildings' : b}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={schedFloor}
+                    onChange={(e) => setSchedFloor(e.target.value)}
+                    aria-label="Schedule filter by floor"
+                    className="px-2.5 py-2 bg-white border border-[#E8E2EE] rounded-lg text-[#290044]"
+                  >
+                    {allFloors.map((f) => (
+                      <option key={f} value={f}>
+                        {f === 'All' ? 'All Floors' : f}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {groups.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {groups.map((grp) => {
+                      const activeGrp = schedGroupIds.includes(grp.id);
+                      return (
+                        <button
+                          key={grp.id}
+                          type="button"
+                          onClick={() => {
+                            if (activeGrp) {
+                              setSchedGroupIds((prev) => prev.filter((id) => id !== grp.id));
+                            } else {
+                              setSchedGroupIds((prev) => [...prev, grp.id]);
+                              setSchedScreenIds((prev) =>
+                                Array.from(new Set([...prev, ...grp.screenIds]))
+                              );
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
+                            activeGrp
+                              ? 'bg-[#500071] text-white border-[#500071]'
+                              : 'bg-white text-[#500071] border-[#E8E2EE] hover:border-[#8A2A78]'
+                          }`}
+                        >
+                          Group: {grp.name} ({grp.screenIds.length})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#645573]">
+                    Showing {filteredSchedScreens.length} matching display(s)
+                  </span>
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSchedScreenIds(filteredSchedScreens.map((s) => s.id))
+                      }
+                      className="font-semibold text-[#500071] hover:underline cursor-pointer"
+                    >
+                      Only Showing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSchedScreenIds((prev) =>
+                          Array.from(new Set([...prev, ...filteredSchedScreens.map((s) => s.id)]))
+                        )
+                      }
+                      className="font-semibold text-[#8A2A78] hover:underline cursor-pointer"
+                    >
+                      + Add Showing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSchedScreenIds([])}
+                      className="font-semibold text-[#645573] hover:text-rose-600 cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {filteredSchedScreens.map((scr) => {
+                    const checked = schedScreenIds.includes(scr.id);
+                    return (
+                      <label
+                        key={scr.id}
+                        className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                          checked
+                            ? 'border-[#500071] bg-white ring-1 ring-[#500071]'
+                            : 'border-[#E8E2EE] bg-white hover:border-[#8A2A78]/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setSchedScreenIds((prev) =>
+                              prev.includes(scr.id)
+                                ? prev.filter((id) => id !== scr.id)
+                                : [...prev, scr.id]
+                            )
+                          }
+                          className="accent-[#500071] w-4 h-4 shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#290044] truncate">{scr.name}</p>
+                          <p className="text-[10px] font-mono text-[#645573] truncate">
+                            {scr.id} · {scr.building} · {scr.floor}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Date & Daily Time Window */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold text-[#290044]">
+                    Date &amp; Daily Time Window
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 text-[10px]">
+                    {[
+                      { label: 'Morning 08–13', s: '08:00', e: '13:00' },
+                      { label: 'Afternoon 13–18', s: '13:00', e: '18:00' },
+                      { label: 'Full Day 08–22', s: '08:00', e: '22:00' },
+                      { label: '24 Hours', s: '00:00', e: '23:59' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setSchedStartTime(preset.s);
+                          setSchedEndTime(preset.e);
+                        }}
+                        className="px-2 py-0.5 rounded bg-[#FAF8FC] border border-[#E8E2EE] text-[#500071] font-semibold hover:bg-[#EEE3B0]/50 cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#645573] mb-1">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={schedStartDate}
+                      onChange={(e) => setSchedStartDate(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs font-mono border border-[#E8E2EE] rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#645573] mb-1">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={schedEndDate}
+                      onChange={(e) => setSchedEndDate(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs font-mono border border-[#E8E2EE] rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#645573] mb-1">
+                      Start Time
+                    </label>
+                    <input
+                      type="time"
+                      value={schedStartTime}
+                      onChange={(e) => setSchedStartTime(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs font-mono border border-[#E8E2EE] rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#645573] mb-1">
+                      End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={schedEndTime}
+                      onChange={(e) => setSchedEndTime(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs font-mono border border-[#E8E2EE] rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional QR Overlay */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-[#F1ECF6]">
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#645573] mb-1">
+                    Optional QR Link URL
+                  </label>
+                  <input
+                    type="url"
+                    value={schedQrUrl}
+                    onChange={(e) => setSchedQrUrl(e.target.value)}
+                    placeholder="https://dypiu.ac.in/... (optional)"
+                    className="w-full px-2.5 py-2 text-xs border border-[#E8E2EE] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#645573] mb-1">
+                    Optional QR Caption
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={40}
+                    value={schedQrLabel}
+                    onChange={(e) => setSchedQrLabel(e.target.value)}
+                    placeholder="e.g., Scan for Info"
+                    className="w-full px-2.5 py-2 text-xs border border-[#E8E2EE] rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {schedError && <p className="text-xs font-medium text-rose-700">{schedError}</p>}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#E8E2EE]">
+                <button
+                  type="button"
+                  onClick={() => setSchedulePl(null)}
+                  className="px-4 py-2 rounded-lg border border-[#E8E2EE] text-xs font-semibold text-[#290044]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#500071] text-white text-xs font-semibold hover:bg-[#8A2A78] cursor-pointer"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  Save Playlist Schedule
+                </button>
+              </div>
+            </form>
+          );
+        })()}
       </Modal>
     </div>
   );

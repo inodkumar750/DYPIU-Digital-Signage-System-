@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, FolderKanban, Lock, Mail, ShieldCheck, Tv } from 'lucide-react';
+import { AtSign, Eye, EyeOff, Lock, Tv } from 'lucide-react';
 import { UserAccount } from '../types/signage';
 import { loginApi } from '../api/signageApi';
 
@@ -43,138 +43,169 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       }
       onLoginSuccess(res.token, res.user);
     } catch {
-      setError('Cannot connect to CampusCast backend server (port 5000).');
+      setError('Cannot connect to NEXORA backend server (port 5000).');
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#290044] flex flex-col justify-center items-center p-4 sm:p-6">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#E6E0EC] overflow-hidden">
-        {/* Top Banner */}
-        <div className="bg-gradient-to-r from-[#290044] to-[#500071] px-6 py-6 text-white">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[#500071] border border-[#EEE3B0]/40 flex items-center justify-center shrink-0">
-              <FolderKanban className="w-6 h-6 text-[#EEE3B0]" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight font-display">
-                CampusCast Sign-In
-              </h1>
-              <p className="text-xs text-[#EEE3B0]/85">
-                D.Y. Patil International University · Digital Signage Console
-              </p>
-            </div>
-          </div>
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-white">
+      {/* Left Brand Panel — Deep Navy + DYPIU Logo + NEXORA Title */}
+      <div className="bg-[#131E3A] text-white flex flex-col items-center justify-center px-8 py-12 lg:py-16 text-center">
+        <div className="bg-white rounded-3xl px-7 py-6 shadow-2xl w-48 sm:w-52 mb-8">
+          <img
+            src="/dypiu-logo.png"
+            alt="D. Y. Patil International University, Akurdi, Pune"
+            className="w-full h-auto object-contain select-none"
+          />
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-[#290044] mb-1.5">
-              University Email
-            </label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-[#645573] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="email"
-                required
-                autoFocus
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setError('');
-                }}
-                placeholder="name@dypiu.ac.in"
-                className="w-full pl-9 pr-3 py-2.5 text-xs bg-[#FAF8FC] border border-[#E8E2EE] rounded-lg text-[#290044] focus:outline-none focus:border-[#8A2A78] focus:bg-white"
-              />
-            </div>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
+          DYPIU Digital Signage
+        </h1>
+        <p className="mt-1.5 text-2xl sm:text-3xl font-bold text-[#F59E0B] tracking-wide">
+          NEXORA
+        </p>
+        <p className="mt-3 text-sm text-[#A5B4CF]">
+          D. Y. Patil International University, Akurdi, Pune
+        </p>
+      </div>
+
+      {/* Right Sign-In Panel — Clean White + Soft Slate Inputs + Role-Based Access */}
+      <div className="bg-white flex flex-col items-center justify-center px-6 sm:px-12 py-10">
+        <div className="w-full max-w-md space-y-6">
+          {/* Emblem + Sign In Heading */}
+          <div className="flex flex-col items-center text-center">
+            <img
+              src="/dypiu-emblem.png"
+              alt="DYPIU Emblem"
+              className="w-12 h-12 mb-2 object-contain select-none"
+            />
+            <h2 className="text-3xl font-bold text-[#0F172A] tracking-tight">
+              Sign In
+            </h2>
+            <p className="mt-1 text-xs text-[#64748B]">
+              NEXORA Campus Signage Console
+            </p>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-[#290044] mb-1.5">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="w-4 h-4 text-[#645573] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setError('');
-                }}
-                placeholder="Enter your password"
-                className="w-full pl-9 pr-10 py-2.5 text-xs bg-[#FAF8FC] border border-[#E8E2EE] rounded-lg text-[#290044] focus:outline-none focus:border-[#8A2A78] focus:bg-white"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((s) => !s)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#645573] hover:text-[#290044]"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 px-4 rounded-lg bg-[#500071] hover:bg-[#8A2A78] text-white text-xs font-semibold transition-colors disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2"
-          >
-            <ShieldCheck className="w-4 h-4 text-[#EEE3B0]" />
-            {loading ? 'Signing in...' : 'Sign In to Console'}
-          </button>
-
-          {/* Quick Role Credentials Helper */}
-          <div className="pt-3 border-t border-[#F1ECF6] space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-[#645573]">
-              <span className="font-semibold text-[#290044]">Quick staff account fill</span>
-              <span className="font-mono">
-                Default pass: <strong className="text-[#500071]">Admin@123</strong>
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {DEMO_ACCOUNTS.map((acc) => (
-                <button
-                  key={acc.email}
-                  type="button"
-                  onClick={() => {
-                    setEmail(acc.email);
-                    setPassword('Admin@123');
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-[#1E293B] mb-1.5">
+                Email
+              </label>
+              <div className="relative">
+                <AtSign className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  required
+                  autoFocus
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
                     setError('');
                   }}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#E8E2EE] bg-[#FAF8FC] hover:border-[#8A2A78] text-left transition-colors cursor-pointer"
+                  placeholder="name@dypiu.ac.in"
+                  className="w-full pl-10 pr-4 py-3 text-sm bg-[#EBF1FC] border border-transparent rounded-xl text-[#0F172A] placeholder-[#64748B] focus:outline-none focus:border-[#131E3A] focus:bg-white transition-colors"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-[#1E293B] mb-1.5">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError('');
+                  }}
+                  placeholder="Enter your password"
+                  className="w-full pl-10 pr-10 py-3 text-sm bg-[#EBF1FC] border border-transparent rounded-xl text-[#0F172A] placeholder-[#64748B] focus:outline-none focus:border-[#131E3A] focus:bg-white transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
                 >
-                  <span className="block text-[11px] font-semibold text-[#290044]">
-                    {acc.label}
-                  </span>
-                  <span className="block text-[10px] text-[#645573] truncate">{acc.role}</span>
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
-              ))}
+              </div>
+            </div>
+
+            {error && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 px-4 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] text-white text-sm font-semibold shadow-sm transition-colors disabled:opacity-60 cursor-pointer flex items-center justify-center"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+
+          {/* Role-Based Access Quick Choose */}
+          <div className="pt-4 border-t border-[#E2E8F0] space-y-2.5">
+            <div className="flex items-center justify-between text-[11px] text-[#64748B]">
+              <span className="font-semibold text-[#0F172A]">
+                Role-based access (choose role)
+              </span>
+              <span className="font-mono">
+                Default pass: <strong className="text-[#131E3A]">Admin@123</strong>
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {DEMO_ACCOUNTS.map((acc) => {
+                const selected = email.trim().toLowerCase() === acc.email.toLowerCase();
+                return (
+                  <button
+                    key={acc.email}
+                    type="button"
+                    onClick={() => {
+                      setEmail(acc.email);
+                      setPassword('Admin@123');
+                      setError('');
+                    }}
+                    className={`px-3 py-2 rounded-xl border text-left transition-colors cursor-pointer ${
+                      selected
+                        ? 'border-[#131E3A] bg-[#EBF1FC]'
+                        : 'border-[#E2E8F0] bg-[#F8FAFC] hover:border-[#F59E0B] hover:bg-[#FFFBEB]/60'
+                    }`}
+                  >
+                    <span className="block text-xs font-semibold text-[#0F172A]">
+                      {acc.label}
+                    </span>
+                    <span className="block text-[11px] text-[#64748B] truncate">
+                      {acc.role}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
-        </form>
 
-        {/* Bottom TV Mode Bypass Link */}
-        <div className="px-6 py-3 bg-[#FAF8FC] border-t border-[#E8E2EE] flex items-center justify-between text-[11px] text-[#645573]">
-          <span>Smart TVs & Standys auto-play without login</span>
-          <button
-            type="button"
-            onClick={onOpenTvMode}
-            className="inline-flex items-center gap-1 font-semibold text-[#500071] hover:text-[#8A2A78] cursor-pointer"
-          >
-            <Tv className="w-3.5 h-3.5" />
-            Open TV Player
-          </button>
+          {/* Bottom TV Mode Bypass Link */}
+          <div className="pt-3 border-t border-[#E2E8F0] flex items-center justify-between text-xs text-[#64748B]">
+            <span>Smart TVs &amp; Standys auto-play without login</span>
+            <button
+              type="button"
+              onClick={onOpenTvMode}
+              className="inline-flex items-center gap-1.5 font-semibold text-[#131E3A] hover:text-[#F59E0B] transition-colors cursor-pointer"
+            >
+              <Tv className="w-3.5 h-3.5" />
+              Open TV Player
+            </button>
+          </div>
         </div>
       </div>
     </div>

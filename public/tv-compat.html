@@ -67,6 +67,35 @@
     }
     #statusTitle { font-size: 20px; font-weight: bold; color: #EEE3B0; margin-bottom: 10px; }
     #statusMsg { font-size: 14px; color: #D7CEE0; max-width: 520px; line-height: 1.5; }
+    #qrOverlay {
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      z-index: 20;
+      display: none;
+      background: rgba(255, 255, 255, 0.96);
+      color: #1A1025;
+      border-radius: 14px;
+      padding: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      border: 2px solid rgba(80, 0, 113, 0.25);
+      text-align: center;
+      max-width: 156px;
+    }
+    #qrImg {
+      width: 124px;
+      height: 124px;
+      display: block;
+      margin: 0 auto;
+    }
+    #qrCaption {
+      margin-top: 6px;
+      font-size: 11px;
+      font-weight: bold;
+      color: #290044;
+      line-height: 1.25;
+      word-break: break-word;
+    }
     #footerBar {
       height: 60px;
       min-height: 60px;
@@ -121,6 +150,10 @@
         <div id="statusTitle">Connecting to CampusCast...</div>
         <div id="statusMsg">Loading display schedule...</div>
       </div>
+      <div id="qrOverlay">
+        <img id="qrImg" alt="Campaign QR Code" />
+        <div id="qrCaption">Scan QR Code</div>
+      </div>
     </div>
     <div id="footerBar">
       <div class="brand">
@@ -166,6 +199,10 @@
       var tickerEl = document.getElementById('tickerText');
       var clockTimeEl = document.getElementById('clockTime');
       var clockDateEl = document.getElementById('clockDate');
+      var qrOverlayEl = document.getElementById('qrOverlay');
+      var qrImgEl = document.getElementById('qrImg');
+      var qrCaptionEl = document.getElementById('qrCaption');
+      var activeQrKey = '';
 
       var slides = [];
       var playlistName = '';
@@ -308,6 +345,8 @@
           if (data.isActive === false) {
             slides = [];
             activeKey = '';
+            activeQrKey = '';
+            qrOverlayEl.style.display = 'none';
             showStatus('Screen in Standby Mode', screenId + ' is deactivated in Screen Management.');
             return;
           }
@@ -315,8 +354,23 @@
           if (!data.playlist || !data.playlist.slides || data.playlist.slides.length === 0) {
             slides = [];
             activeKey = '';
+            activeQrKey = '';
+            qrOverlayEl.style.display = 'none';
             showStatus('Ready — Waiting for Playlist', 'Display "' + screenId + '" is online. Assign a playlist or schedule a campaign from Dashboard.');
             return;
+          }
+
+          if (data.campaignQr && data.campaignQr.dataUrl) {
+            var qrKey = (data.campaignQr.url || '') + '|' + (data.campaignQr.label || '');
+            if (qrKey !== activeQrKey) {
+              activeQrKey = qrKey;
+              qrImgEl.src = data.campaignQr.dataUrl;
+              qrCaptionEl.textContent = data.campaignQr.label || 'Scan QR Code';
+            }
+            qrOverlayEl.style.display = 'block';
+          } else {
+            activeQrKey = '';
+            qrOverlayEl.style.display = 'none';
           }
 
           playlistName = data.playlist.name || '';

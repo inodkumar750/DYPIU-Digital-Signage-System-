@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import QRCode from 'qrcode';
 import { pool } from '../db.js';
 
 const router = Router();
@@ -151,6 +152,25 @@ router.get('/:screenId/manifest', async (req, res) => {
       downloadUrl: it.file_url?.startsWith('http') ? it.file_url : `${host}${it.file_url || it.thumbnail_url}`,
     }));
 
+    let campaignQr = null;
+    if (activeCampaign?.qr_url && String(activeCampaign.qr_url).trim()) {
+      const qrText = String(activeCampaign.qr_url).trim();
+      try {
+        const dataUrl = await QRCode.toDataURL(qrText, {
+          width: 240,
+          margin: 1,
+          color: { dark: '#111827', light: '#FFFFFF' },
+        });
+        campaignQr = {
+          url: qrText,
+          label: (activeCampaign.qr_label && String(activeCampaign.qr_label).trim()) || 'Scan QR Code',
+          dataUrl,
+        };
+      } catch {
+        campaignQr = null;
+      }
+    }
+
     res.json({
       success: true,
       screenId,
@@ -159,6 +179,7 @@ router.get('/:screenId/manifest', async (req, res) => {
       floor: screen.floor,
       isActive: true,
       syncTimestamp: new Date().toISOString(),
+      campaignQr,
       playlist: {
         id: playlist.id,
         name: playlist.name,

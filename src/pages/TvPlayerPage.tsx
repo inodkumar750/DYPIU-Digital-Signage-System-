@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   ArrowLeft,
   Cast,
@@ -317,6 +318,32 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     () => resolveActiveCampaignForScreen(activeScreen?.id, currentCampaigns, currentGroups, nowTick),
     [activeScreen?.id, currentCampaigns, currentGroups, nowTick]
   );
+
+  const [campaignQrDataUrl, setCampaignQrDataUrl] = useState<string>('');
+  const activeQrUrl = activeCampaign?.qrUrl?.trim() || '';
+  const activeQrLabel = activeCampaign?.qrLabel?.trim() || 'Scan QR Code';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeQrUrl) {
+      setCampaignQrDataUrl('');
+      return;
+    }
+    QRCode.toDataURL(activeQrUrl, {
+      width: 240,
+      margin: 1,
+      color: { dark: '#111827', light: '#FFFFFF' },
+    })
+      .then((url) => {
+        if (!cancelled) setCampaignQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setCampaignQrDataUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeQrUrl]);
 
   // Active Playlist resolution: active campaign takes priority, then direct screen playlist, then screen group default playlist
   const groupDefaultPlaylistId = useMemo(() => {
@@ -1005,12 +1032,44 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
           )}
         </div>
 
+        {/* Optional Campaign QR Code Overlay (bottom-right inside stage) */}
+        {campaignQrDataUrl && (
+          <div
+            className="absolute bottom-5 right-5 z-20 bg-white/95 text-[#1A1025] rounded-2xl p-2.5 shadow-2xl border-2 border-[#500071]/25 text-center max-w-[160px]"
+            style={{
+              position: 'absolute',
+              right: '20px',
+              bottom: '20px',
+              zIndex: 20,
+              backgroundColor: 'rgba(255, 255, 255, 0.96)',
+              color: '#1A1025',
+              borderRadius: '14px',
+              padding: '10px',
+              textAlign: 'center',
+              maxWidth: '160px',
+            }}
+          >
+            <img
+              src={campaignQrDataUrl}
+              alt={activeQrLabel}
+              className="w-28 h-28 mx-auto block rounded-md"
+              style={{ width: '116px', height: '116px', display: 'block', margin: '0 auto' }}
+            />
+            <p
+              className="mt-1.5 text-[11px] font-bold text-[#290044] leading-tight break-words"
+              style={{ marginTop: '6px', fontSize: '11px', fontWeight: 700, color: '#290044' }}
+            >
+              {activeQrLabel}
+            </p>
+          </div>
+        )}
+
         {/* Slide & Playlist Counter Overlay Badge */}
         {!isKioskMode && (
           <div
             className={`absolute ${
-              liveShowTicker ? 'bottom-20' : 'bottom-6'
-            } right-6 z-20 bg-black/70 backdrop-blur-md border border-white/10 text-white/90 px-3 py-1.5 rounded-lg text-xs font-mono transition-opacity duration-300 flex items-center gap-2 ${
+              campaignQrDataUrl ? 'bottom-5 left-6' : liveShowTicker ? 'bottom-20 right-6' : 'bottom-6 right-6'
+            } z-20 bg-black/70 backdrop-blur-md border border-white/10 text-white/90 px-3 py-1.5 rounded-lg text-xs font-mono transition-opacity duration-300 flex items-center gap-2 ${
               showControls ? 'opacity-100' : 'opacity-0'
             }`}
           >

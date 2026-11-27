@@ -863,10 +863,14 @@ export default function App() {
               playlists={playlists}
               screens={screens}
               mediaAssets={mediaAssets}
+              campaigns={campaigns}
+              groups={groups}
               openCreateSignal={createPlaylistSignal}
               onSavePlaylist={handleSavePlaylist}
               onDeletePlaylist={handleDeletePlaylist}
               onAssignScreens={handleAssignScreenToPlaylist}
+              onSchedulePlaylist={handleSaveCampaign}
+              onDeleteSchedule={handleDeleteCampaign}
             />
           )}
 
@@ -888,6 +892,8 @@ export default function App() {
               screens={screens}
               playlists={playlists}
               mediaAssets={mediaAssets}
+              campaigns={campaigns}
+              groups={groups}
               openAddSignal={addScreenSignal}
               onAddScreen={handleAddScreen}
               onUpdateScreen={handleUpdateScreen}
