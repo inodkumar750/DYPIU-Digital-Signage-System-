@@ -24,7 +24,7 @@
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.CampusCastTV"
+        android:theme="@style/Theme.NexoraTV"
         android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true">
 
@@ -41,7 +41,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Optional TV Home Launcher Alias (lets TV boot directly into CampusCast when chosen as Home app) -->
+        <!-- Optional TV Home Launcher Alias (lets TV boot directly into NEXORA when chosen as Home app) -->
         <activity-alias
             android:name=".KioskHomeAlias"
             android:enabled="true"

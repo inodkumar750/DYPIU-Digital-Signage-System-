@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
-  FolderKanban,
   Image as ImageIcon,
   Layers,
   LayoutDashboard,
@@ -79,16 +78,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => handleSelect(visibleNavItems[0]?.id || 'dashboard')}
           className="flex items-center gap-3 min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EEE3B0] rounded-lg"
         >
-          <div className="w-9 h-9 rounded-lg bg-[#500071] border border-[#8A2A78] flex items-center justify-center shrink-0">
-            <FolderKanban className="w-5 h-5 text-[#EEE3B0]" />
+          <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center shrink-0 overflow-hidden shadow-md">
+            <img
+              src="/dypiu-logo.png"
+              alt="DYPIU Logo"
+              className="w-9 h-9 object-contain"
+            />
           </div>
           {!collapsed && (
             <div className="min-w-0">
               <span className="block text-[16px] font-bold tracking-tight text-white font-display leading-tight">
-                CampusCast
+                NEXORA
               </span>
               <span className="block text-[13px] text-[#EEE3B0]/85 leading-tight">
-                University signage
+                DYPIU Digital Signage
               </span>
             </div>
           )}
@@ -141,9 +144,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="pt-3 mt-3 border-t border-white/10">
           <a
-            href="/CampusCast-TV.apk"
-            download="CampusCast-TV.apk"
-            title={collapsed ? 'Download TV APK (v1.0.4)' : undefined}
+            href="/NEXORA-TV.apk"
+            download="NEXORA-TV.apk"
+            title={collapsed ? 'Download NEXORA TV APK (v1.0.4)' : undefined}
             className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg text-[15px] leading-[1.35] font-semibold bg-[#EEE3B0]/15 text-[#EEE3B0] hover:bg-[#EEE3B0] hover:text-[#290044] transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EEE3B0]"
           >
             <span className="flex items-center gap-3 min-w-0">
