@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEXORA TV — DYPIU Digital Signage</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+      background: #0F051D;
+    }
+    .splash {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #fff;
+      gap: 20px;
+    }
+    .logo-wrap {
+      width: 140px; height: 140px;
+      background: #fff;
+      border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 40px rgba(80,0,113,0.6);
+    }
+    .logo-wrap img { width: 120px; height: 120px; object-fit: contain; }
+    h1 {
+      font-size: 52px;
+      font-weight: 800;
+      color: #EEE3B0;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+    }
+    .subtitle {
+      font-size: 18px;
+      color: rgba(255,255,255,0.55);
+      letter-spacing: 1px;
+    }
+    .dots { display: flex; gap: 8px; margin-top: 10px; }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #500071;
+      animation: pulse 1.2s infinite ease-in-out;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; background: #8A2A78; }
+    .dot:nth-child(3) { animation-delay: 0.4s; background: #EEE3B0; }
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.6); opacity: 0.4; }
+      50% { transform: scale(1); opacity: 1; }
+    }
+    .error-box {
+      display: none;
+      background: rgba(255,60,60,0.15);
+      border: 1px solid rgba(255,60,60,0.4);
+      border-radius: 12px;
+      padding: 16px 28px;
+      font-size: 15px;
+      color: #ffaaaa;
+      text-align: center;
+      max-width: 500px;
+    }
+  </style>
+</head>
+<body>
+  <div class="splash" id="splash">
+    <div class="logo-wrap">
+      <img src="largeIcon.png" alt="DYPIU Logo">
+    </div>
+    <h1>NEXORA TV</h1>
+    <div class="subtitle">D.Y. Patil International University</div>
+    <div class="dots">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="error-box" id="errBox"></div>
+  </div>
+
+  <script>
+    // ─── SERVER CONFIG ───────────────────────────────────────
+    // Change this IP if your server IP changes
+    var NEXORA_SERVER = localStorage.getItem('nexora_server') || 'http://10.40.53.80:3000';
+    var TV_URL = NEXORA_SERVER + '/tv?kiosk=1&ticker=1';
+    // ─────────────────────────────────────────────────────────
+
+    function goToPlayer() {
+      window.location.replace(TV_URL);
+    }
+
+    function showError(msg) {
+      var box = document.getElementById('errBox');
+      box.style.display = 'block';
+      box.textContent = msg;
+    }
+
+    // Try to reach server first, then redirect
+    function tryConnect(attempt) {
+      attempt = attempt || 1;
+      var img = new Image();
+      img.onload = function() { goToPlayer(); };
+      img.onerror = function() {
+        if (attempt < 5) {
+          showError('Connecting to NEXORA server... (attempt ' + attempt + '/5)');
+          setTimeout(function() { tryConnect(attempt + 1); }, 3000);
+        } else {
+          showError(
+            'Cannot reach server at ' + NEXORA_SERVER +
+            '. Make sure your TV and server are on the same WiFi network. ' +
+            'Retrying in 10 seconds...'
+          );
+          setTimeout(function() { tryConnect(1); }, 10000);
+        }
+      };
+      img.src = NEXORA_SERVER + '/dypiu-logo.png?t=' + Date.now();
+    }
+
+    // Start connection after splash shows (1.5s)
+    setTimeout(function() { tryConnect(); }, 1500);
+  </script>
+</body>
+</html>

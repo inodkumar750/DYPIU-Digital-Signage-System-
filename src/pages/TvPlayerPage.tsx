@@ -319,9 +319,31 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     [activeScreen?.id, currentCampaigns, currentGroups, nowTick]
   );
 
+  // QR Campaign: show QR overlay for ANY campaign targeting this screen that is within its DATE range
+  // (not restricted to time window — QR should show all day, not just during playlist override hours)
+  const qrCampaign = useMemo(() => {
+    if (!activeScreen?.id) return null;
+    const screenId = activeScreen.id;
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    const candidates = currentCampaigns.filter((c) => {
+      if (c.status !== 'Active' && c.status !== 'Scheduled') return false;
+      if (!c.qrUrl?.trim()) return false;
+      if (todayStr < c.startDate || todayStr > c.endDate) return false;
+      if (c.targetScreenIds.includes(screenId)) return true;
+      if (c.targetGroupIds.length === 0) return false;
+      return currentGroups.some((g) => c.targetGroupIds.includes(g.id) && g.screenIds.includes(screenId));
+    });
+    if (candidates.length === 0) return null;
+    // Pick highest priority
+    const rank: Record<string, number> = { Urgent: 3, High: 2, Normal: 1 };
+    return candidates.slice().sort((a, b) => (rank[b.priority] || 1) - (rank[a.priority] || 1))[0];
+  }, [activeScreen?.id, currentCampaigns, currentGroups]);
+
   const [campaignQrDataUrl, setCampaignQrDataUrl] = useState<string>('');
-  const activeQrUrl = activeCampaign?.qrUrl?.trim() || '';
-  const activeQrLabel = activeCampaign?.qrLabel?.trim() || 'Scan QR Code';
+  // Use qrCampaign (date-range only) for QR display, so QR shows all day not just in time window
+  const activeQrUrl = qrCampaign?.qrUrl?.trim() || '';
+  const activeQrLabel = qrCampaign?.qrLabel?.trim() || activeCampaign?.qrLabel?.trim() || 'Scan QR Code';
 
   useEffect(() => {
     let cancelled = false;

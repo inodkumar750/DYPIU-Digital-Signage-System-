@@ -1,0 +1,13 @@
+{
+  "id": "in.ac.dypiu.nexora.tv",
+  "version": "1.0.4",
+  "vendor": "D.Y. Patil International University",
+  "type": "web",
+  "main": "index.html",
+  "title": "NEXORA TV",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#290044",
+  "transparent": false,
+  "requiredPermissions": ["time.query", "activity.operation"]
+}
