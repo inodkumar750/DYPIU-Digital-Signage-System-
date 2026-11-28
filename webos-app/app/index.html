@@ -8,42 +8,61 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0F051D; color: #fff;
       font-family: 'LG Smart UI', 'Segoe UI', Arial, sans-serif; }
-    body { background: radial-gradient(ellipse at 20% 0%, #3d0a5c 0%, #1a0830 45%, #0F051D 100%); }
+    body { background: #0F051D; }
 
-    /* ── Signage player (NEXORA) lives underneath the home screen ── */
+    /* Scenes: own gradient artwork that follows the time of day */
+    #scene { position: fixed; top: 0; left: 0; right: 0; bottom: 0; }
+    body.s-morning #scene { background: radial-gradient(ellipse at 15% 10%, #b8508a 0%, #6a2a78 38%, #25104a 75%, #0F051D 100%); }
+    body.s-day     #scene { background: radial-gradient(ellipse at 80% 0%, #8A2A78 0%, #500071 40%, #1d0a38 78%, #0F051D 100%); }
+    body.s-evening #scene { background: radial-gradient(ellipse at 20% 100%, #c2563f 0%, #7a2a62 35%, #2a0c48 72%, #0F051D 100%); }
+    body.s-night   #scene { background: radial-gradient(ellipse at 50% 0%, #3a1368 0%, #1a0834 50%, #0a0314 100%); }
+    #scene:after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(to top, rgba(8,2,16,.78) 0%, rgba(8,2,16,0) 52%); }
+
+    /* Signage player (NEXORA) lives underneath the home screen */
     #player { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; border: 0; background: #000; visibility: hidden; }
     body.signage #player { visibility: visible; }
-    body.signage #home { display: none; }
+    body.signage #home, body.signage #scene { display: none; }
 
-    /* ── Home ── */
-    #home { position: fixed; top: 0; left: 0; right: 0; bottom: 0; padding: 48px 72px; display: flex; flex-direction: column; }
-    .top { display: flex; align-items: center; justify-content: space-between; }
-    .brand { display: flex; align-items: center; gap: 22px; }
-    .logo { width: 92px; height: 92px; background: #fff; border-radius: 22px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 40px rgba(138,42,120,.55); }
-    .logo img { width: 78px; height: 78px; object-fit: contain; }
-    .brand h1 { font-size: 46px; font-weight: 800; letter-spacing: 3px; color: #EEE3B0; }
-    .brand p { font-size: 20px; color: rgba(255,255,255,.6); margin-top: 4px; }
-    .clock { text-align: right; }
-    .clock .time { font-size: 64px; font-weight: 300; letter-spacing: 2px; }
-    .clock .date { font-size: 20px; color: rgba(255,255,255,.65); margin-top: 2px; }
-    .status { margin-top: 8px; font-size: 16px; color: rgba(255,255,255,.55); display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-    .dot { width: 11px; height: 11px; border-radius: 50%; background: #666; }
+    /* Home */
+    #home { position: fixed; top: 0; left: 0; right: 0; bottom: 0; padding: 44px 64px 40px; display: flex; flex-direction: column; }
+    .top { display: flex; align-items: flex-start; justify-content: space-between; }
+    .hello .greet { font-size: 30px; color: rgba(255,255,255,.75); letter-spacing: 1px; }
+    .hello .time { font-size: 150px; font-weight: 200; line-height: 1.02; letter-spacing: 2px; text-shadow: 0 6px 40px rgba(0,0,0,.35); }
+    .hello .date { font-size: 28px; color: rgba(255,255,255,.7); margin-top: 4px; }
+    .pill { display: flex; align-items: center; gap: 14px; padding: 10px 24px 10px 12px; border-radius: 40px;
+      background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.22); -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px); }
+    .pill .lg { width: 52px; height: 52px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; }
+    .pill .lg img { width: 40px; height: 40px; object-fit: contain; }
+    .pill .nm { font-size: 22px; font-weight: 700; letter-spacing: 2px; color: #EEE3B0; }
+    .pill .tg { font-size: 14px; color: rgba(255,255,255,.65); }
+    .pill .st { display: flex; align-items: center; gap: 8px; font-size: 15px; color: rgba(255,255,255,.7); margin-left: 12px; padding-left: 18px; border-left: 1px solid rgba(255,255,255,.2); }
+    .dot { width: 11px; height: 11px; border-radius: 50%; background: #777; }
     .dot.on { background: #34d399; box-shadow: 0 0 10px #34d399; }
 
-    .main { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 28px; }
-    .tiles { display: flex; flex-wrap: wrap; gap: 26px; align-items: stretch; }
-    .tile { width: 210px; height: 210px; border-radius: 30px; background: rgba(255,255,255,.08);
-      border: 2px solid rgba(255,255,255,.12); display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 16px; color: #fff; font-size: 22px; font-weight: 600; cursor: pointer;
-      transition: transform .12s ease, border-color .12s ease, background .12s ease; }
-    .tile svg { width: 76px; height: 76px; stroke: #EEE3B0; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-    .tile.focus { transform: scale(1.09); border-color: #EEE3B0; background: rgba(238,227,176,.18); box-shadow: 0 14px 50px rgba(0,0,0,.5); }
-    .tile.primary { width: 440px; background: linear-gradient(135deg, #500071, #8A2A78); border-color: rgba(238,227,176,.45); flex-direction: row; gap: 26px; }
-    .tile.primary img { width: 96px; height: 96px; background: #fff; border-radius: 22px; padding: 8px; object-fit: contain; }
-    .tile.primary .t1 { font-size: 36px; font-weight: 800; letter-spacing: 2px; }
-    .tile.primary .t2 { font-size: 18px; font-weight: 400; color: rgba(255,255,255,.75); margin-top: 6px; }
-    .banner { min-height: 34px; font-size: 22px; color: #EEE3B0; }
-    .foot { display: flex; justify-content: space-between; align-items: center; font-size: 16px; color: rgba(255,255,255,.45); }
+    .main { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 26px; }
+    .focus-name { font-size: 60px; font-weight: 700; text-shadow: 0 4px 30px rgba(0,0,0,.5); }
+    .focus-sub { font-size: 24px; color: rgba(255,255,255,.7); margin-top: 6px; }
+    .banner { min-height: 32px; font-size: 20px; color: #EEE3B0; margin-top: 14px; }
+
+    /* Dock */
+    .dock { position: relative; overflow: hidden; border-radius: 34px; padding: 26px 0 40px;
+      background: rgba(255,255,255,.13); border: 1.5px solid rgba(255,255,255,.28);
+      -webkit-backdrop-filter: blur(28px); backdrop-filter: blur(28px); box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+    .tiles { display: flex; align-items: flex-start; gap: 30px; padding: 0 36px; transition: transform .25s ease; }
+    .tile { flex: 0 0 auto; width: 176px; text-align: center; position: relative; cursor: pointer; }
+    .tile .box { width: 176px; height: 110px; border-radius: 18px; background: linear-gradient(160deg, rgba(255,255,255,.22), rgba(255,255,255,.07));
+      border: 1px solid rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,.28); transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
+    .tile svg { width: 56px; height: 56px; stroke: #fff; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .tile .lbl { margin-top: 14px; font-size: 20px; color: rgba(255,255,255,0); transition: color .15s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tile.focus .box { transform: scale(1.18); background: linear-gradient(160deg, rgba(255,255,255,.95), rgba(238,227,176,.8)); box-shadow: 0 18px 44px rgba(0,0,0,.5); }
+    .tile.focus svg { stroke: #500071; }
+    .tile.focus .lbl { color: #fff; margin-top: 22px; }
+    .tile.primary .box { background: linear-gradient(135deg, #500071, #8A2A78); border-color: rgba(238,227,176,.5); }
+    .tile.primary .box img { width: 84px; height: 84px; background: #fff; border-radius: 16px; padding: 6px; object-fit: contain; }
+    .tile.primary.focus .box { background: linear-gradient(135deg, #6a1090, #b0409a); }
+    .foot { display: flex; justify-content: space-between; align-items: center; font-size: 15px; color: rgba(255,255,255,.4); margin-top: 16px; }
 
     /* ── Staff overlay ── */
     #overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(8,2,16,.88); display: none; align-items: center; justify-content: center; z-index: 10; }
@@ -63,25 +82,29 @@
 <body>
   <iframe id="player" allow="autoplay; fullscreen"></iframe>
 
+  <div id="scene"></div>
   <div id="home">
     <div class="top">
-      <div class="brand">
-        <div class="logo"><img src="largeIcon.png" alt="DYPIU"></div>
-        <div><h1 id="brandName">DYPIU OS</h1><p id="brandTag">D. Y. Patil International University</p></div>
-      </div>
-      <div class="clock">
+      <div class="hello">
+        <div class="greet" id="greet">Welcome</div>
         <div class="time" id="time">--:--</div>
         <div class="date" id="date"></div>
-        <div class="status"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
+      </div>
+      <div class="pill">
+        <div class="lg"><img src="largeIcon.png" alt="DYPIU"></div>
+        <div><div class="nm" id="brandName">DYPIU OS</div><div class="tg" id="brandTag">D. Y. Patil International University</div></div>
+        <div class="st"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
       </div>
     </div>
     <div class="main">
+      <div class="focus-name" id="focusName"></div>
+      <div class="focus-sub" id="focusSub"></div>
       <div class="banner" id="banner"></div>
-      <div class="tiles" id="tiles"></div>
     </div>
+    <div class="dock"><div class="tiles" id="tiles"></div></div>
     <div class="foot">
-      <span>Use the arrow keys and OK &nbsp;·&nbsp; YELLOW button: staff menu</span>
-      <span id="ver">DYPIU OS 1.1</span>
+      <span>Arrow keys and OK &nbsp;·&nbsp; YELLOW button: staff menu</span>
+      <span id="ver">DYPIU OS 1.2 &nbsp;·&nbsp; dock design inspired by tvOS Launcher (Apache-2.0)</span>
     </div>
   </div>
 
@@ -90,7 +113,7 @@
   <script>
     // ─── DYPIU OS shell ────────────────────────────────────────────────────────
     var DEFAULT_SERVER = '__NEXORA_SERVER__'; // replaced when the IPK is built
-    var OS_VERSION = '1.1';
+    var OS_VERSION = '1.2';
     var LS = window.localStorage;
     function $(id) { return document.getElementById(id); }
     function server() { return (LS.getItem('nexora_server') || DEFAULT_SERVER).replace(/\/+$/, ''); }
@@ -145,13 +168,17 @@
       var box = $('tiles'); box.innerHTML = ''; tileEls = [];
       var first = document.createElement('div');
       first.className = 'tile primary'; first.tabIndex = -1;
-      first.innerHTML = '<img src="largeIcon.png" alt=""><div><div class="t1">NEXORA</div><div class="t2">Campus digital signage</div></div>';
+      first.setAttribute('data-sub', 'Campus digital signage');
+      first.setAttribute('data-name', 'NEXORA');
+      first.innerHTML = '<div class="box"><img src="largeIcon.png" alt=""></div><div class="lbl">NEXORA</div>';
       first.onclick = function () { showSignage(); };
       box.appendChild(first); tileEls.push(first);
       cfg.apps.forEach(function (a) {
         var t = document.createElement('div');
+        var label = String(a.label).replace(/</g, '&lt;');
         t.className = 'tile'; t.tabIndex = -1;
-        t.innerHTML = '<svg viewBox="0 0 24 24">' + (ICONS[a.icon] || ICONS.app) + '</svg><div>' + String(a.label).replace(/</g, '&lt;') + '</div>';
+        t.setAttribute('data-name', a.label); t.setAttribute('data-sub', 'Open app');
+        t.innerHTML = '<div class="box"><svg viewBox="0 0 24 24">' + (ICONS[a.icon] || ICONS.app) + '</svg></div><div class="lbl">' + label + '</div>';
         t.onclick = function () { launchApp(a.id); };
         box.appendChild(t); tileEls.push(t);
       });
@@ -161,13 +188,27 @@
     function setFocus(i) {
       focusIdx = i;
       tileEls.forEach(function (t, k) { t.className = t.className.replace(' focus', '') + (k === i ? ' focus' : ''); });
+      var el = tileEls[i];
+      if (el) {
+        $('focusName').textContent = el.getAttribute('data-name');
+        $('focusSub').textContent = el.getAttribute('data-sub');
+        // keep the focused tile inside the dock: slide the track when it would run off the right edge
+        var tw = 206, viewW = window.innerWidth - 128 - 72, maxScroll = Math.max(0, tileEls.length * tw - viewW);
+        var off = Math.min(maxScroll, Math.max(0, (i + 1) * tw - viewW));
+        $('tiles').style.transform = 'translateX(' + (-off) + 'px)';
+      }
     }
+    var sceneName = 'day';
+    function applyBodyClass() { document.body.className = (view === 'signage' ? 'signage ' : '') + 's-' + sceneName; }
     function tickClock() {
       var d = new Date();
       var h = d.getHours(), m = d.getMinutes();
       $('time').textContent = (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
-      var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], mons = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], mons = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       $('date').textContent = days[d.getDay()] + ', ' + d.getDate() + ' ' + mons[d.getMonth()] + ' ' + d.getFullYear();
+      sceneName = h >= 5 && h < 11 ? 'morning' : h >= 11 && h < 17 ? 'day' : h >= 17 && h < 20 ? 'evening' : 'night';
+      $('greet').textContent = h >= 5 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : h >= 17 && h < 21 ? 'Good evening' : 'Good night';
+      applyBodyClass();
     }
     function setStatus(ok) {
       $('dot').className = 'dot' + (ok ? ' on' : '');
@@ -184,11 +225,11 @@
     }
     function showSignage() {
       clearTimeout(idleTimer); stopBoot();
-      view = 'signage'; document.body.className = 'signage';
+      view = 'signage'; applyBodyClass();
       try { $('player').contentWindow.focus(); } catch (e) {}
     }
     function showHome() {
-      view = 'home'; document.body.className = '';
+      view = 'home'; applyBodyClass();
       try { $('player').blur(); } catch (e) {}
       window.focus(); armIdle();
     }
@@ -286,11 +327,8 @@
       if (overlayMode === 'form') { if (BACK.indexOf(code) >= 0 && document.activeElement && document.activeElement.id !== 'srvIn') openStaff(); return false; }
       // home screen
       stopBoot(); armIdle();
-      var cols = Math.max(1, Math.floor((window.innerWidth - 144) / 236));
-      if (code === 39) setFocus(Math.min(tileEls.length - 1, focusIdx + 1));
-      else if (code === 37) setFocus(Math.max(0, focusIdx - 1));
-      else if (code === 40) setFocus(Math.min(tileEls.length - 1, focusIdx + Math.max(1, cols - 1)));
-      else if (code === 38) setFocus(Math.max(0, focusIdx - Math.max(1, cols - 1)));
+      if (code === 39 || code === 40) setFocus(Math.min(tileEls.length - 1, focusIdx + 1));
+      else if (code === 37 || code === 38) setFocus(Math.max(0, focusIdx - 1));
       else if (code === 13) tileEls[focusIdx].click();
       return true; // never let BACK close DYPIU OS
     }
