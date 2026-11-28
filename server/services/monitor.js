@@ -67,6 +67,7 @@ export async function pruneOldData() {
   await pool.query('DELETE FROM playback_logs WHERE started_at < DATE_SUB(NOW(), INTERVAL 180 DAY)');
   await pool.query('DELETE FROM activity_events WHERE created_at < DATE_SUB(NOW(), INTERVAL 365 DAY)');
   await pool.query('DELETE FROM pairing_requests WHERE expires_at < NOW()');
+  await pool.query('DELETE FROM device_commands WHERE created_at < DATE_SUB(NOW(), INTERVAL 14 DAY)');
 }
 
 export function startBackgroundJobs() {

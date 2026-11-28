@@ -73,6 +73,7 @@ import { ScreenManagementPage } from './pages/ScreenManagementPage';
 import { ScreenGroupsPage } from './pages/ScreenGroupsPage';
 import { PublishingPage } from './pages/PublishingPage';
 import { MonitoringPage } from './pages/MonitoringPage';
+import { ControlCenterPage } from './pages/ControlCenterPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -969,6 +970,15 @@ export default function App() {
                 await refreshScreensLive();
                 pushToast('Refreshed live TV heartbeats from MySQL.', 'success');
               }}
+            />
+          )}
+
+          {activeRoute === 'control' && allowedMenus.includes('control') && (
+            <ControlCenterPage
+              screens={screens}
+              groups={groups}
+              onRefreshScreens={refreshScreensLive}
+              pushToast={pushToast}
             />
           )}
 

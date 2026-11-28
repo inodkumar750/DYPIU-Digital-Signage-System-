@@ -9,6 +9,7 @@ export const ALL_ADMIN_MENUS: { id: PageRoute; label: string; description: strin
   { id: 'groups', label: 'Screen Groups', description: 'Manage floor & building groups' },
   { id: 'publishing', label: 'Publishing', description: 'Push sync jobs & retry queue' },
   { id: 'monitoring', label: 'Monitoring', description: 'Live screen health & heartbeats' },
+  { id: 'control', label: 'Control Center', description: 'Command all screens on the network at once' },
   { id: 'reports', label: 'Reports', description: 'Uptime, impressions & audit exports' },
   { id: 'users', label: 'User Management', description: 'Manage accounts, passwords & menus' },
   { id: 'settings', label: 'Settings', description: 'Platform defaults & TV bar config' },
@@ -16,7 +17,7 @@ export const ALL_ADMIN_MENUS: { id: PageRoute; label: string; description: strin
 
 export const DEFAULT_MENUS_BY_ROLE: Record<UserRole, PageRoute[]> = {
   'Super Administrator': ALL_ADMIN_MENUS.map((m) => m.id),
-  'IT Administrator': ['dashboard', 'screens', 'groups', 'publishing', 'monitoring', 'reports', 'settings'],
+  'IT Administrator': ['dashboard', 'screens', 'groups', 'publishing', 'monitoring', 'control', 'reports', 'settings'],
   'Content Manager': ['dashboard', 'media', 'playlists', 'campaigns', 'publishing'],
   'Monitoring User': ['dashboard', 'monitoring', 'reports'],
 };

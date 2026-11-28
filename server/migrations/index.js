@@ -80,6 +80,27 @@ const MIGRATIONS = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+  {
+    id: '005_remote_control_commands',
+    async up(conn) {
+      await conn.query(`CREATE TABLE IF NOT EXISTS \`device_commands\` (
+        \`id\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+        \`screen_id\` VARCHAR(50) NOT NULL,
+        \`command\` VARCHAR(30) NOT NULL,
+        \`payload\` TEXT NULL,
+        \`status\` VARCHAR(10) NOT NULL DEFAULT 'pending',
+        \`created_by\` VARCHAR(100) NOT NULL DEFAULT '',
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`sent_at\` DATETIME NULL,
+        \`done_at\` DATETIME NULL,
+        \`expires_at\` DATETIME NOT NULL,
+        INDEX \`idx_cmd_screen_status\` (\`screen_id\`, \`status\`),
+        INDEX \`idx_cmd_created\` (\`created_at\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await addColumn(conn, 'pairing_requests', 'ip_address', 'VARCHAR(45) NULL');
+      await addColumn(conn, 'pairing_requests', 'user_agent', 'VARCHAR(255) NULL');
+    },
+  },
 ];
 
 export async function runMigrations() {

@@ -101,3 +101,27 @@ test('heartbeat liveness uses the configured threshold', () => {
   assert.equal(stale.lastSeen, '2m ago');
   assert.equal(off.lastSeen, 'Turned Off (Standby)');
 });
+
+const cmd = await import('../utils/commands.js');
+
+test('remote commands: validation, expiry and targets', () => {
+  const m = cmd.buildCommand({ command: 'message', text: '  Fire drill at 11:00  ', durationSec: 60, style: 'urgent' }, 1_000_000);
+  assert.equal(m.payload.text, 'Fire drill at 11:00');
+  assert.equal(m.payload.style, 'urgent');
+  assert.equal(m.payload.until, 1_000_000 + 60_000);
+  assert.equal(m.ttlSec, 60);
+  assert.throws(() => cmd.buildCommand({ command: 'message', text: '' }), /required/);
+  assert.throws(() => cmd.buildCommand({ command: 'message', text: 'x', durationSec: 1 }), /duration/);
+  assert.throws(() => cmd.buildCommand({ command: 'format-disk' }), /Unknown command/);
+  assert.equal(cmd.buildCommand({ command: 'reload' }).payload, null);
+  assert.deepEqual(cmd.normalizeTargets(['a', ' a ', 'b', '']), ['a', 'b']);
+  assert.throws(() => cmd.normalizeTargets([]), /at least one/);
+  assert.throws(() => cmd.normalizeTargets('a'), /list/);
+});
+
+test('network helpers: ip cleanup and subnet grouping', () => {
+  assert.equal(cmd.cleanIp('::ffff:10.100.5.23'), '10.100.5.23');
+  assert.equal(cmd.subnetOf('10.100.5.23'), '10.100.5.0/24');
+  assert.equal(cmd.subnetOf('999.1.1.1'), '');
+  assert.equal(cmd.subnetOf('fe80::1'), '');
+});

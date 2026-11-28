@@ -124,6 +124,11 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     return showTvTicker;
   });
   const [wakeLockActive, setWakeLockActive] = useState<boolean>(false);
+  // Remote control from the Control Center (delivered in the heartbeat response).
+  const [remoteMessage, setRemoteMessage] = useState<{ text: string; urgent: boolean } | null>(null);
+  const [identifying, setIdentifying] = useState(false);
+  const pendingAcksRef = useRef<number[]>([]);
+  const remoteTimersRef = useRef<{ msg?: number; ident?: number }>({});
   const [castHint, setCastHint] = useState<string>('');
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -556,24 +561,60 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     // An admin merely previewing a screen must not make it look Online; real TVs (kiosk/cast/no session) do report.
     if (getAuthToken() && !isKioskMode && !isCastMode) return;
 
+    const applyCommands = (
+      list: { id: number; command: string; payload?: { text?: string; style?: string; until?: number } | null }[],
+      serverNowMs: number
+    ) => {
+      for (const c of list) {
+        const p = c.payload || {};
+        // `until` is on the server clock; use the remaining time so a wrong TV clock does not matter.
+        const remaining = p.until ? Math.max(0, p.until - serverNowMs) : 0;
+        if (c.command === 'reload') {
+          window.location.reload();
+          return;
+        }
+        if (c.command === 'identify') {
+          setIdentifying(true);
+          window.clearTimeout(remoteTimersRef.current.ident);
+          remoteTimersRef.current.ident = window.setTimeout(() => setIdentifying(false), remaining || 15000);
+        } else if (c.command === 'message') {
+          setRemoteMessage({ text: p.text || '', urgent: p.style === 'urgent' });
+          window.clearTimeout(remoteTimersRef.current.msg);
+          remoteTimersRef.current.msg = window.setTimeout(() => setRemoteMessage(null), remaining || 60000);
+        } else if (c.command === 'clear_message') {
+          window.clearTimeout(remoteTimersRef.current.msg);
+          setRemoteMessage(null);
+        }
+        pendingAcksRef.current.push(c.id);
+      }
+    };
+
     const sendHeartbeat = async () => {
+      const acks = pendingAcksRef.current.slice();
       try {
-        await fetch(`${API_BASE}/device/${activeScreen.id}/heartbeat`, {
+        const res = await fetch(`${API_BASE}/device/${activeScreen.id}/heartbeat`, {
           method: 'POST',
           headers: playerHeaders(),
           body: JSON.stringify({
             currentMediaId: currentSlide?.mediaId || null,
             playerAppVersion: 'web-player',
             playbackError: null,
+            ackCommands: acks,
           }),
         });
+        if (!res.ok) return;
+        const json = await res.json();
+        pendingAcksRef.current = pendingAcksRef.current.filter((id) => !acks.includes(id));
+        if (Array.isArray(json.commands) && json.commands.length > 0) {
+          applyCommands(json.commands, Date.parse(json.timestamp) || Date.now());
+        }
       } catch (err) {
         // Silently fail if server is unreachable
       }
     };
 
     sendHeartbeat();
-    const heartbeatTimer = window.setInterval(sendHeartbeat, 15000);
+    const heartbeatTimer = window.setInterval(sendHeartbeat, 10000);
     return () => clearInterval(heartbeatTimer);
   }, [activeScreen?.id, activeScreen?.isActive, currentSlide?.mediaId, isKioskMode, isCastMode]);
 
@@ -769,6 +810,23 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
         cursor: showControls && !isKioskMode ? 'default' : 'none',
       }}
     >
+      {/* Remote-control overlays (sent from the Control Center) */}
+      {remoteMessage && (
+        <div
+          className={`absolute left-0 right-0 top-0 z-[70] px-10 py-6 text-center text-3xl font-bold leading-snug text-white shadow-2xl ${
+            remoteMessage.urgent ? 'bg-red-600' : 'bg-blue-700'
+          }`}
+        >
+          {remoteMessage.text}
+        </div>
+      )}
+      {identifying && (
+        <div className="absolute inset-0 z-[80] flex flex-col items-center justify-center bg-[#1A0B2E]/95 text-center">
+          <div className="text-5xl font-bold text-[#EEE3B0]">{activeScreen?.name || 'NEXORA Display'}</div>
+          <div className="mt-4 text-3xl text-white">{activeScreen?.id}</div>
+        </div>
+      )}
+
       {/* Main Playback Area */}
 
       {/* Cast Mode Toast Hint */}

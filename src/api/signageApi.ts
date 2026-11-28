@@ -19,10 +19,10 @@ function resolveApiOrigin(): string {
   if (fromEnv) return fromEnv.replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
   if (typeof window === 'undefined') return 'http://localhost:5000';
   const { protocol, hostname, port, origin } = window.location;
-  // Served by the API itself (production build) or behind a reverse proxy → same origin.
-  if (port === '5000' || port === '' || protocol === 'https:') return origin;
-  // Vite dev server (port 3000) → API on the same host, port 5000.
-  return `${protocol}//${hostname}:5000`;
+  // Vite dev / preview servers → API on the same host, port 5000. Anything else (the API itself on any port,
+  // a reverse proxy, https) serves the CMS and the API from the same origin.
+  if (['3000', '5173', '4173'].includes(port) && protocol !== 'https:') return `${protocol}//${hostname}:5000`;
+  return origin;
 }
 
 export const API_ORIGIN = resolveApiOrigin();
@@ -153,6 +153,51 @@ export async function toggleScreenActiveApi(id: string): Promise<void> {
 
 export async function reconnectScreenApi(id: string): Promise<void> {
   await request(`/screens/${encodeURIComponent(id)}/reconnect`, { method: 'PATCH', ...NOTIFY });
+}
+
+/* ───────────────────────── CONTROL CENTER ───────────────────────── */
+
+export type RemoteCommand = 'reload' | 'identify' | 'message' | 'clear_message' | 'standby' | 'resume';
+
+export interface CommandRecord {
+  id: number;
+  screenId: string;
+  screenName: string;
+  command: RemoteCommand;
+  text: string;
+  status: 'pending' | 'sent' | 'done' | 'expired';
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface PendingPairing {
+  code: string;
+  ipAddress: string;
+  userAgent: string;
+  secondsLeft: number;
+}
+
+export async function sendCommandApi(
+  screenIds: string[],
+  command: RemoteCommand,
+  extra: { text?: string; durationSec?: number; style?: 'info' | 'urgent' } = {}
+): Promise<{ queued: number; unknown: string[]; message: string }> {
+  return request('/control/commands', { method: 'POST', body: { screenIds, command, ...extra } });
+}
+
+export async function getCommandHistory(): Promise<CommandRecord[]> {
+  return (await request('/control/commands')).data || [];
+}
+
+export async function getPendingPairings(): Promise<PendingPairing[]> {
+  return (await request('/control/pending-pairings')).data || [];
+}
+
+export async function adoptPairingApi(
+  pairingCode: string,
+  details: { screenName: string; building: string; floor: string; location: string }
+): Promise<{ screenId: string; boundToTv: boolean }> {
+  return request('/screens/pair-verify', { method: 'POST', body: { pairingCode, ...details } });
 }
 
 /* ───────────────────────── MEDIA ───────────────────────── */

@@ -16,6 +16,7 @@ import authRouter from './routes/auth.js';
 import settingsRouter from './routes/settings.js';
 import deviceRouter from './routes/device.js';
 import adminRouter from './routes/admin.js';
+import controlRouter from './routes/control.js';
 import { pool, checkDb } from './db.js';
 import { runMigrations } from './migrations/index.js';
 import { bootstrapUsers } from './services/bootstrap.js';
@@ -118,6 +119,7 @@ app.use('/api/v1/campaigns', ...guarded, campaignsRouter);
 app.use('/api/v1/groups', ...guarded, groupsRouter);
 app.use('/api/v1/publishing', ...guarded, publishingRouter);
 app.use('/api/v1/users', ...guarded, usersRouter);
+app.use('/api/v1/control', ...guarded, controlRouter);
 app.use('/api/v1', authRequired, adminRouter);
 app.use('/api', (req, res) => res.status(404).json({ success: false, error: 'Unknown API endpoint.' }));
 

@@ -9,12 +9,15 @@ function makeCode() {
 }
 
 /** TV side: request a short-lived pairing code to show on screen. */
-export async function startPairing() {
+export async function startPairing(ip = '', userAgent = '') {
   await pool.query('DELETE FROM pairing_requests WHERE expires_at < NOW()');
   for (let i = 0; i < 10; i++) {
     const code = makeCode();
     try {
-      await pool.query('INSERT INTO pairing_requests (code, expires_at) VALUES (?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))', [code]);
+      await pool.query(
+        'INSERT INTO pairing_requests (code, expires_at, ip_address, user_agent) VALUES (?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), ?, ?)',
+        [code, String(ip || '').slice(0, 45) || null, String(userAgent || '').slice(0, 255) || null]
+      );
       return { code, expiresInSeconds: 600 };
     } catch (err) {
       if (err.code !== 'ER_DUP_ENTRY') throw err;
@@ -40,4 +43,19 @@ export async function pairingStatus(code) {
   const screenId = rows[0].screen_id;
   await pool.query('DELETE FROM pairing_requests WHERE code=?', [code]);
   return { state: 'paired', screenId, deviceKey: deviceKeyFor(screenId) };
+}
+
+/** Admin side: TVs on the network that are showing a pairing code and waiting to be adopted. */
+export async function listPendingPairings() {
+  await pool.query('DELETE FROM pairing_requests WHERE expires_at < NOW()');
+  const [rows] = await pool.query(
+    'SELECT code, ip_address, user_agent, created_at, TIMESTAMPDIFF(SECOND, NOW(), expires_at) AS seconds_left FROM pairing_requests WHERE screen_id IS NULL ORDER BY created_at DESC LIMIT 50'
+  );
+  return rows.map((r) => ({
+    code: r.code,
+    ipAddress: r.ip_address || '',
+    userAgent: r.user_agent || '',
+    createdAt: r.created_at,
+    secondsLeft: Math.max(0, Number(r.seconds_left) || 0),
+  }));
 }

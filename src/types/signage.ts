@@ -7,6 +7,7 @@ export type PageRoute =
   | 'groups'
   | 'publishing'
   | 'monitoring'
+  | 'control'
   | 'reports'
   | 'users'
   | 'settings'

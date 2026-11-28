@@ -15,6 +15,7 @@ export const ALL_MENUS = [
   'groups',
   'publishing',
   'monitoring',
+  'control',
   'reports',
   'users',
   'settings',
@@ -22,7 +23,7 @@ export const ALL_MENUS = [
 
 export const DEFAULT_MENUS_BY_ROLE = {
   'Super Administrator': ALL_MENUS,
-  'IT Administrator': ['dashboard', 'screens', 'groups', 'publishing', 'monitoring', 'reports', 'settings'],
+  'IT Administrator': ['dashboard', 'screens', 'groups', 'publishing', 'monitoring', 'control', 'reports', 'settings'],
   'Content Manager': ['dashboard', 'media', 'playlists', 'campaigns', 'publishing'],
   'Monitoring User': ['dashboard', 'monitoring', 'reports'],
 };

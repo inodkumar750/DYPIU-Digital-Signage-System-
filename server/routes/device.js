@@ -12,6 +12,8 @@ import { pickLiveCampaign, zonedNow } from '../utils/schedule.js';
 import { publicBaseUrl, toDeviceUrl } from '../utils/network.js';
 import { rateLimitMiddleware } from '../utils/rateLimit.js';
 import { pairingStatus, startPairing } from '../services/pairing.js';
+import { ackCommands, takePending } from '../services/commands.js';
+import { cleanIp } from '../utils/commands.js';
 import { getSettings, listCampaigns, listGroups, listMedia, listPlaylists, listScreens } from '../services/serializers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,7 +66,7 @@ router.post(
   '/pair/start',
   pairLimiter,
   asyncHandler(async (req, res) => {
-    res.json({ success: true, ...(await startPairing()) });
+    res.json({ success: true, ...(await startPairing(cleanIp(req.ip), req.headers['user-agent'])) });
   })
 );
 
@@ -261,7 +263,7 @@ router.post(
         num(b.storageUsedPct),
         text(b.playerAppVersion, 50),
         text(b.playbackError, 1000),
-        text(b.ipAddress, 50),
+        cleanIp(req.ip) || text(b.ipAddress, 50),
         screenId,
       ]
     );
@@ -270,7 +272,9 @@ router.post(
     if (mediaId && mediaId !== rows[0].current_media_id) {
       pool.query('INSERT INTO playback_logs (screen_id, media_id) VALUES (?, ?)', [screenId, mediaId]).catch(() => {});
     }
-    res.json({ success: true, timestamp: now, ack: 'heartbeat_received' });
+    await ackCommands(screenId, b.ackCommands);
+    const commands = active ? await takePending(screenId) : [];
+    res.json({ success: true, timestamp: now, ack: 'heartbeat_received', commands });
   })
 );
 

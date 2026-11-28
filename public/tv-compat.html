@@ -138,6 +138,20 @@
     #clockBox { text-align: right; flex-shrink: 0; }
     #clockTime { font-size: 15px; font-weight: bold; font-family: monospace; color: #FFFFFF; }
     #clockDate { font-size: 11px; color: #EEE3B0; opacity: 0.8; }
+    #msgBar {
+      position: absolute; left: 0; right: 0; top: 0; z-index: 40; display: none;
+      padding: 22px 36px; text-align: center; font-size: 34px; font-weight: bold; line-height: 1.3;
+      color: #FFFFFF; background: #1D4ED8;
+    }
+    #msgBar.urgent { background: #DC2626; }
+    #identOverlay {
+      position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 50; display: none;
+      -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center;
+      -webkit-flex-direction: column; flex-direction: column; text-align: center;
+      background: rgba(26, 11, 46, 0.94); color: #EEE3B0;
+    }
+    #identName { font-size: 54px; font-weight: bold; }
+    #identId { font-size: 30px; margin-top: 14px; color: #FFFFFF; }
   </style>
 </head>
 <body>
@@ -151,6 +165,8 @@
         <div id="statusTitle">Connecting to NEXORA...</div>
         <div id="statusMsg">Loading DYPIU Digital Signage schedule...</div>
       </div>
+      <div id="msgBar"></div>
+      <div id="identOverlay"><div id="identName"></div><div id="identId"></div></div>
       <div id="qrOverlay">
         <img id="qrImg" alt="Campaign QR Code" />
         <div id="qrCaption">Scan QR Code</div>
@@ -195,9 +211,10 @@
       var host = window.location.hostname || 'localhost';
       var port = window.location.port;
       // Served by the API itself (port 5000 / reverse proxy) -> same origin; dev server -> API on :5000.
-      var apiBase = (port === '5000' || port === '' || window.location.protocol === 'https:')
-        ? window.location.origin + '/api/v1'
-        : 'http://' + host + ':5000/api/v1';
+      var isDevPort = (port === '3000' || port === '5173' || port === '4173') && window.location.protocol !== 'https:';
+      var apiBase = isDevPort
+        ? 'http://' + host + ':5000/api/v1'
+        : window.location.origin + '/api/v1';
 
       var imgEl = document.getElementById('imgPlayer');
       var vidEl = document.getElementById('vidPlayer');
@@ -408,22 +425,72 @@
 
       }
 
+      // ── Remote control (commands arrive in the heartbeat response) ──
+      var msgBarEl = document.getElementById('msgBar');
+      var identEl = document.getElementById('identOverlay');
+      var pendingAcks = [];
+      var msgDeadline = 0;
+      var identDeadline = 0;
+
+      function handleCommands(list, serverNowMs) {
+        for (var i = 0; i < list.length; i++) {
+          var c = list[i];
+          var p = c.payload || {};
+          // `until` is on the server clock; convert to "ms from now" so a wrong TV clock does not matter.
+          var remaining = p.until ? Math.max(0, p.until - serverNowMs) : 0;
+          if (c.command === 'reload') {
+            window.location.reload();
+            return;
+          } else if (c.command === 'identify') {
+            document.getElementById('identName').textContent = scrSubEl.textContent || 'NEXORA Display';
+            document.getElementById('identId').textContent = screenId;
+            identEl.style.display = 'flex';
+            identDeadline = new Date().getTime() + (remaining || 15000);
+          } else if (c.command === 'message') {
+            msgBarEl.textContent = p.text || '';
+            msgBarEl.className = p.style === 'urgent' ? 'urgent' : '';
+            msgBarEl.style.display = 'block';
+            msgDeadline = new Date().getTime() + (remaining || 60000);
+          } else if (c.command === 'clear_message') {
+            msgBarEl.style.display = 'none';
+            msgDeadline = 0;
+          }
+          pendingAcks.push(c.id);
+        }
+      }
+
+      setInterval(function () {
+        var now = new Date().getTime();
+        if (msgDeadline && now > msgDeadline) { msgBarEl.style.display = 'none'; msgDeadline = 0; }
+        if (identDeadline && now > identDeadline) { identEl.style.display = 'none'; identDeadline = 0; }
+      }, 1000);
+
       function sendHeartbeat() {
         var xhr = new XMLHttpRequest();
         xhr.open('POST', apiBase + '/device/' + encodeURIComponent(screenId) + '/heartbeat', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
         if (deviceKey) xhr.setRequestHeader('X-Device-Key', deviceKey);
+        var acks = pendingAcks.slice(0);
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState !== 4 || xhr.status !== 200) return;
+          try {
+            var r = JSON.parse(xhr.responseText);
+            pendingAcks = pendingAcks.filter(function (id) { return acks.indexOf(id) === -1; });
+            if (r.commands && r.commands.length) handleCommands(r.commands, Date.parse(r.timestamp) || new Date().getTime());
+          } catch (e) {}
+        };
         xhr.send(JSON.stringify({
           currentMediaId: currentMediaId,
           playerAppVersion: 'compat-player',
-          playbackError: null
+          playbackError: null,
+          ackCommands: acks
         }));
       }
 
       pollManifest();
       sendHeartbeat();
       setInterval(pollManifest, 10000);
-      setInterval(sendHeartbeat, 15000);
+      setInterval(sendHeartbeat, 10000);
     })();
   </script>
 </body>

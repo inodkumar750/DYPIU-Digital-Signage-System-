@@ -35,6 +35,23 @@ or `docker compose up -d --build` (needs `DB_PASSWORD` and `CAMPUSCAST_AUTH_SECR
 Device keys are shown by the API (`GET /api/v1/screens`, field `deviceKey`) and are enforced when
 `CAMPUSCAST_REQUIRE_DEVICE_KEY=1`.
 
+## Control Center (all screens from one place)
+
+Sidebar → **Control Center** (Super Administrator and IT Administrator by default; tick *Control Center* for other users in
+User Management). Pick screens by **Wi-Fi network** (grouped by /24 subnet of the IP the server sees), building, group,
+or individually, then:
+
+| Action | What happens |
+| --- | --- |
+| Refresh player | the TV page reloads (picks up new player code and content) |
+| Identify | the screen shows its name and ID for ~20 s so you can find it physically |
+| On-screen message | banner (normal or urgent red) for 1 min – until cleared; *Clear* removes it |
+| Standby / Wake | switches screens off/on in the CMS (same as the Screen Management toggle, in bulk) |
+
+Commands are queued on the server and delivered in each TV's next heartbeat (every 10 s); a screen that is briefly
+offline still receives them until they expire. **New TVs on the network** that show a pairing code appear at the top of
+the page with their IP address – type a name and click *Adopt TV*. History of the last commands is listed at the bottom.
+
 ## Useful commands
 
 | Command | Purpose |
