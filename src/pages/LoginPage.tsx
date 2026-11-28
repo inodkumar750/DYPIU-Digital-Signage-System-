@@ -160,9 +160,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <span className="font-semibold text-[#0F172A]">
                 Role-based access (choose role)
               </span>
-              <span className="font-mono">
-                Default pass: <strong className="text-[#131E3A]">Admin@123</strong>
-              </span>
+              <span>Use your account password</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {DEMO_ACCOUNTS.map((acc) => {
@@ -173,7 +171,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="button"
                     onClick={() => {
                       setEmail(acc.email);
-                      setPassword('Admin@123');
+                      setPassword('');
                       setError('');
                     }}
                     className={`px-3 py-2 rounded-xl border text-left transition-colors cursor-pointer ${
