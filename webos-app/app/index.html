@@ -69,7 +69,40 @@
     .setup { display:none; width:min(640px,90vw); background:rgba(255,255,255,0.06); border:1px solid rgba(238,227,176,0.25); border-radius:16px; padding:24px 28px; }
     .setup label { display:block; font-size:14px; color:rgba(255,255,255,0.7); margin:12px 0 4px; }
     .setup input { width:100%; padding:12px 14px; font-size:18px; border-radius:8px; border:2px solid #500071; background:#1a0830; color:#fff; }
-    .se<script>
+    .setup input:focus, .setup button:focus { outline: none; border-color: #EEE3B0; box-shadow: 0 0 0 3px rgba(238,227,176,0.35); }
+    .setup button { margin-top:20px; width:100%; padding:14px; font-size:20px; font-weight:700; color:#290044; background:#EEE3B0; border:2px solid transparent; border-radius:10px; cursor:pointer; }
+    .setup .hint { margin-top:14px; font-size:13px; color:rgba(255,255,255,0.5); text-align:center; }
+    .setup h2 { font-size:22px; color:#EEE3B0; margin-bottom:4px; }
+  </style>
+</head>
+<body>
+  <div class="splash" id="splash">
+    <div class="logo-wrap">
+      <img src="largeIcon.png" alt="DYPIU Logo">
+    </div>
+    <h1>NEXORA TV</h1>
+    <div class="subtitle">D.Y. Patil International University</div>
+    <div class="dots">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="error-box" id="errBox"></div>
+
+    <div class="setup" id="setup">
+      <h2>Set up this display</h2>
+      <label for="srv">Server address</label>
+      <input id="srv" type="text" placeholder="http://10.100.0.39:5000" autocomplete="off">
+      <label for="scr">Screen ID</label>
+      <input id="scr" type="text" placeholder="DYPIU-TV-022" autocomplete="off">
+      <label for="key">Device key (leave empty if not required)</label>
+      <input id="key" type="text" placeholder="optional" autocomplete="off">
+      <button id="save" type="button">Save &amp; connect</button>
+      <div class="hint">Press the YELLOW button at any time to open this screen again.</div>
+    </div>
+  </div>
+
+  <script>
     // ─── CONFIG (set once on this TV; stored locally, nothing hard-coded) ───
     var LS = window.localStorage;
     function cfg() {
