@@ -15,6 +15,10 @@ COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY public ./public
 COPY src/assets ./src/assets
-EXPOSE 5000
+# uploads must be writable by the unprivileged user (also when mounted as a named volume)
+RUN mkdir -p server/uploads && chown -R node:node /app/server/uploads
 USER node
+EXPOSE 5000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:5000/api/health >/dev/null || exit 1
 CMD ["node", "server/index.js"]

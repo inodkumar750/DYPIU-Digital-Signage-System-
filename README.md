@@ -51,3 +51,13 @@ Device keys are shown by the API (`GET /api/v1/screens`, field `deviceKey`) and 
 3. Set the same numbers in `server/ota.json`. TVs verify the SHA-256 the server advertises before installing.
 
 See `docs/NEXORA_System_Audit_and_Fix_Report.docx` for the full audit, every fix and the remaining work.
+
+## CI/CD (GitHub Actions → campus server)
+
+- `.github/workflows/ci-cd.yml` – type-check, tests, build on every push/PR; pushes to `main` then deploy on the
+  self-hosted runner labelled `nexora` using `deploy/deploy.sh` (Docker Compose, health check, automatic rollback).
+- `.github/workflows/android.yml` – builds the signed APK (artifact) when `android-tv-app/**` changes.
+- One-time server setup: `sudo bash deploy/setup-server.sh --repo <repo-url> --token <runner-token> --public-url http://<server-ip>:5000`
+  (token: GitHub → Settings → Actions → Runners → New self-hosted runner).
+- Required repository secrets for the APK build: `NEXORA_KEYSTORE_B64`, `NEXORA_KEYSTORE_PASSWORD`, `NEXORA_KEY_ALIAS`, `NEXORA_KEY_PASSWORD`.
+  The keystore itself lives only in `android-tv-app/keystore/` (git-ignored) – back it up.
