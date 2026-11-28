@@ -1,124 +1,127 @@
 import { Router } from 'express';
-import { pool } from '../db.js';
+import { pool, withTx } from '../db.js';
+import { requireMenu } from '../middleware/auth.js';
+import { asyncHandler, badRequest, conflict, intIn, newId, notFound, oneOf, str } from '../utils/http.js';
+import { listPlaylists } from '../services/serializers.js';
+import { formatTimestamp } from '../utils/heartbeat.js';
 
 const router = Router();
+const canEdit = requireMenu('playlists');
 
-// GET all playlists with their slides
-router.get('/', async (req, res) => {
-  try {
-    const [playlists] = await pool.query('SELECT * FROM playlists ORDER BY created_at DESC');
-    const [items] = await pool.query('SELECT * FROM playlist_items ORDER BY order_index ASC');
-    const [screens] = await pool.query('SELECT id, assigned_playlist_id FROM screens');
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    res.json({ success: true, data: await listPlaylists() });
+  })
+);
 
-    const result = playlists.map((pl) => {
-      const plItems = items
-        .filter((it) => it.playlist_id === pl.id)
-        .map((it) => ({
-          id: it.id,
-          mediaId: it.media_id,
-          order: it.order_index,
-          displayDurationSeconds: it.display_duration_seconds,
-          muteAudio: Boolean(it.mute_audio),
-          loopVideo: Boolean(it.loop_video),
-        }));
+router.post(
+  '/',
+  canEdit,
+  asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const name = str(b.name, { field: 'Playlist name', max: 255, required: true });
+    const description = str(b.description, { max: 2000 });
+    const status = oneOf(b.status, ['Active', 'Draft', 'Archived'], { field: 'Status', fallback: 'Active' });
+    const defaultDuration = intIn(b.defaultImageDuration, { field: 'Default image duration', min: 1, max: 3600, fallback: 10 });
+    const items = b.items === undefined ? undefined : b.items;
+    if (items !== undefined && (!Array.isArray(items) || items.length > 500)) {
+      throw badRequest('Playlist items must be a list of at most 500 entries.');
+    }
+    const now = formatTimestamp(Date.now()).slice(0, 16);
 
-      const assignedScreenIds = screens
-        .filter((s) => s.assigned_playlist_id === pl.id)
-        .map((s) => s.id);
+    const id = await withTx(async (conn) => {
+      const plId = b.id ? String(b.id).slice(0, 50) : newId('pl');
+      await conn.query(
+        `INSERT INTO playlists (id, name, description, status, default_image_duration, auto_advance_video, loop_playlist, last_updated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), status=VALUES(status),
+           default_image_duration=VALUES(default_image_duration), auto_advance_video=VALUES(auto_advance_video),
+           loop_playlist=VALUES(loop_playlist), last_updated=VALUES(last_updated)`,
+        [plId, name, description, status, defaultDuration, b.autoAdvanceVideo === false ? 0 : 1, b.loopPlaylist === false ? 0 : 1, now]
+      );
 
-      return {
-        id: pl.id,
-        name: pl.name,
-        description: pl.description || '',
-        items: plItems,
-        assignedScreenIds,
-        lastUpdated: pl.last_updated || '',
-        status: pl.status,
-        defaultImageDuration: pl.default_image_duration,
-        autoAdvanceVideo: Boolean(pl.auto_advance_video),
-        loopPlaylist: Boolean(pl.loop_playlist),
-      };
-    });
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// POST create or update playlist
-router.post('/', async (req, res) => {
-  try {
-    const { id, name, description, status, defaultImageDuration, autoAdvanceVideo, loopPlaylist, items } = req.body;
-    const plId = id || `pl-${Date.now().toString().slice(-4)}`;
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
-
-    await pool.query(
-      `INSERT INTO playlists (id, name, description, status, default_image_duration, auto_advance_video, loop_playlist, last_updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), status=VALUES(status),
-       default_image_duration=VALUES(default_image_duration), auto_advance_video=VALUES(auto_advance_video),
-       loop_playlist=VALUES(loop_playlist), last_updated=VALUES(last_updated)`,
-      [plId, name, description || '', status || 'Active', defaultImageDuration || 10, autoAdvanceVideo ? 1 : 0, loopPlaylist ? 1 : 0, now]
-    );
-
-    // Replace items
-    if (Array.isArray(items)) {
-      await pool.query('DELETE FROM playlist_items WHERE playlist_id=?', [plId]);
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        await pool.query(
-          `INSERT INTO playlist_items (id, playlist_id, media_id, order_index, display_duration_seconds, mute_audio, loop_video)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [
-            item.id || `pi-${Date.now()}-${i}`,
+      if (items) {
+        const mediaIds = [...new Set(items.map((it) => String(it?.mediaId || '')))];
+        if (mediaIds.some((m) => !m)) throw badRequest('Every playlist item needs a mediaId.');
+        if (mediaIds.length > 0) {
+          const [found] = await conn.query('SELECT id FROM media_assets WHERE id IN (?)', [mediaIds]);
+          if (found.length !== mediaIds.length) throw badRequest('One or more media files in this playlist no longer exist.');
+        }
+        await conn.query('DELETE FROM playlist_items WHERE playlist_id=?', [plId]);
+        if (items.length > 0) {
+          const rows = items.map((it, i) => [
+            newId('pi'),
             plId,
-            item.mediaId,
+            String(it.mediaId),
             i + 1,
-            item.displayDurationSeconds || defaultImageDuration || 10,
-            item.muteAudio ? 1 : 0,
-            item.loopVideo ? 1 : 0,
-          ]
+            intIn(it.displayDurationSeconds, { field: 'Slide duration', min: 1, max: 3600, fallback: defaultDuration }),
+            it.muteAudio === false ? 0 : 1,
+            it.loopVideo ? 1 : 0,
+          ]);
+          await conn.query(
+            'INSERT INTO playlist_items (id, playlist_id, media_id, order_index, display_duration_seconds, mute_audio, loop_video) VALUES ?',
+            [rows]
+          );
+        }
+      }
+      return plId;
+    });
+    res.json({ success: true, id, message: 'Playlist saved successfully' });
+  })
+);
+
+/** Deleting is blocked while campaigns still use the playlist; screens/groups are un-assigned automatically. */
+router.delete(
+  '/:id',
+  canEdit,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    await withTx(async (conn) => {
+      const [exists] = await conn.query('SELECT id FROM playlists WHERE id=? FOR UPDATE', [id]);
+      if (exists.length === 0) throw notFound('Playlist not found');
+      const [camps] = await conn.query('SELECT name FROM campaigns WHERE playlist_id=? LIMIT 5', [id]);
+      if (camps.length > 0) {
+        throw conflict(
+          `This playlist is used by campaign(s): ${camps.map((c) => `"${c.name}"`).join(', ')}. Delete or re-point those campaigns first.`
         );
       }
-    }
-
-    res.json({ success: true, id: plId, message: 'Playlist saved successfully' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// DELETE playlist
-router.delete('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.query('DELETE FROM playlists WHERE id=?', [id]);
+      await conn.query('UPDATE screens SET assigned_playlist_id=NULL WHERE assigned_playlist_id=?', [id]);
+      await conn.query('UPDATE screen_groups SET assigned_playlist_id=NULL WHERE assigned_playlist_id=?', [id]);
+      await conn.query('DELETE FROM playlists WHERE id=?', [id]);
+    });
     res.json({ success: true, message: 'Playlist deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+  })
+);
 
-// POST add media to playlist
-router.post('/:id/add-media', async (req, res) => {
-  try {
+router.post(
+  '/:id/add-media',
+  canEdit,
+  asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { mediaId, displayDurationSeconds } = req.body;
-    const [existing] = await pool.query('SELECT count(*) as count FROM playlist_items WHERE playlist_id=?', [id]);
-    const nextOrder = (existing[0]?.count || 0) + 1;
-    const itemId = `pi-${Date.now()}`;
-
-    await pool.query(
-      `INSERT INTO playlist_items (id, playlist_id, media_id, order_index, display_duration_seconds, mute_audio, loop_video)
-       VALUES (?, ?, ?, ?, ?, 1, 0)`,
-      [itemId, id, mediaId, nextOrder, displayDurationSeconds || 10]
-    );
-
+    const mediaId = str(req.body?.mediaId, { field: 'mediaId', max: 50, required: true });
+    const itemId = newId('pi');
+    await withTx(async (conn) => {
+      const [pl] = await conn.query('SELECT default_image_duration FROM playlists WHERE id=? FOR UPDATE', [id]);
+      if (pl.length === 0) throw notFound('Playlist not found');
+      const [m] = await conn.query('SELECT id FROM media_assets WHERE id=?', [mediaId]);
+      if (m.length === 0) throw notFound('Media not found');
+      const [mx] = await conn.query('SELECT COALESCE(MAX(order_index),0) AS mx FROM playlist_items WHERE playlist_id=?', [id]);
+      const duration = intIn(req.body?.displayDurationSeconds, {
+        field: 'Slide duration',
+        min: 1,
+        max: 3600,
+        fallback: pl[0].default_image_duration || 10,
+      });
+      await conn.query(
+        `INSERT INTO playlist_items (id, playlist_id, media_id, order_index, display_duration_seconds, mute_audio, loop_video)
+         VALUES (?, ?, ?, ?, ?, 1, 0)`,
+        [itemId, id, mediaId, mx[0].mx + 1, duration]
+      );
+      await conn.query('UPDATE playlists SET last_updated=? WHERE id=?', [formatTimestamp(Date.now()).slice(0, 16), id]);
+    });
     res.json({ success: true, itemId, message: 'Media added to playlist' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+  })
+);
 
 export default router;

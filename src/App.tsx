@@ -41,6 +41,7 @@ import {
   getMedia,
   uploadMediaFile,
   deleteMediaApi,
+  updateMediaApi,
   getPlaylists,
   savePlaylistApi,
   deletePlaylistApi,
@@ -144,9 +145,10 @@ export default function App() {
     };
   }, []);
 
-  // Phase 2: Load live records directly from MySQL backend
-  useEffect(() => {
-    async function loadBackendData() {
+  // Load live records from the MySQL backend (requires a signed-in session; TV player URLs load their own feed)
+  const reloadAll = useCallback(async () => {
+    if (isPlayerUrl) return;
+    {
       try {
         const [
           dbScreens,
@@ -180,10 +182,13 @@ export default function App() {
         console.warn('Backend connection notice (using local data fallback):', err);
       }
     }
-    loadBackendData();
-  }, []);
+  }, [isPlayerUrl]);
 
-  const pushToast = useCallback((text: string, tone: 'info' | 'success' = 'info') => {
+  useEffect(() => {
+    if (authToken) reloadAll();
+  }, [authToken, reloadAll]);
+
+  const pushToast = useCallback((text: string, tone: 'info' | 'success' | 'error' = 'info') => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setToasts((prev) => [...prev.slice(-3), { id, text, tone }]);
     const timer = window.setTimeout(() => {
@@ -197,7 +202,7 @@ export default function App() {
       actionType: ActivityEvent['actionType'],
       title: string,
       detail: string,
-      actor = 'Vinod Kumar Jain'
+      actor = authUser?.name || 'Administrator'
     ) => {
       setActivities((prev) => [
         {
@@ -211,7 +216,7 @@ export default function App() {
         ...prev,
       ]);
     },
-    []
+    [authUser?.name]
   );
 
   const handleQuickAction = (
@@ -250,7 +255,9 @@ export default function App() {
 
   const handleUpdateMedia = (updated: MediaAsset) => {
     setMediaAssets((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
-    pushToast(`Updated metadata for "${updated.title}".`, 'success');
+    updateMediaApi(updated)
+      .then(() => pushToast(`Updated metadata for "${updated.title}".`, 'success'))
+      .catch(() => {});
   };
 
   const handleDeleteMedia = (id: string) => {
@@ -691,6 +698,29 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, [authToken, isPlayerUrl, handleLogout]);
+
+  // Global API feedback: surface server-side failures (validation, permissions, conflicts) and re-sync optimistic UI.
+  useEffect(() => {
+    if (isPlayerUrl) return;
+    let lastSync = 0;
+    const onError = (e: Event) => {
+      const msg = (e as CustomEvent<string>).detail || 'The server rejected this change.';
+      pushToast(msg, 'error');
+      if (Date.now() - lastSync > 2000) {
+        lastSync = Date.now();
+        reloadAll();
+      }
+    };
+    const onUnauthorized = (e: Event) => {
+      handleLogout((e as CustomEvent<string>).detail || 'Your session has expired. Please sign in again.');
+    };
+    window.addEventListener('campuscast:api-error', onError);
+    window.addEventListener('campuscast:unauthorized', onUnauthorized);
+    return () => {
+      window.removeEventListener('campuscast:api-error', onError);
+      window.removeEventListener('campuscast:unauthorized', onUnauthorized);
+    };
+  }, [isPlayerUrl, pushToast, reloadAll, handleLogout]);
 
   const refreshScreensLive = useCallback(async () => {
     try {

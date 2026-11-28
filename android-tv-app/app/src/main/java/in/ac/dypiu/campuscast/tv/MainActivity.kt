@@ -83,8 +83,22 @@ class MainActivity : AppCompatActivity() {
         const val KEY_SCREEN_ID = "screen_id"
         const val KEY_AUTO_BOOT = "auto_boot"
         const val KEY_CONFIGURED = "is_configured"
-        const val DEFAULT_SERVER_URL = "http://10.40.0.193:3000"
-        const val DEFAULT_SCREEN_ID = "DYPIU-TV-012"
+        const val KEY_DEVICE_KEY = "device_key"
+        // No hard-coded addresses: every TV is configured once on the setup screen.
+        const val DEFAULT_SERVER_URL = ""
+        const val DEFAULT_SCREEN_ID = ""
+
+        /**
+         * API origin for a configured server URL. The CMS dev server (port 3000) maps to the API on port 5000;
+         * any other port (production build served by the API itself) is used as-is.
+         */
+        fun apiBase(serverUrl: String): String? {
+            val parsed = Uri.parse(serverUrl)
+            val host = parsed.host ?: return null
+            val scheme = parsed.scheme ?: "http"
+            val port = if (parsed.port == -1 || parsed.port == 3000) 5000 else parsed.port
+            return "$scheme://$host:$port"
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -103,9 +117,11 @@ class MainActivity : AppCompatActivity() {
         cbAutoBoot = findViewById(R.id.cbAutoBoot)
         tvAutoBootStatus = findViewById(R.id.tvAutoBootStatus)
 
-        val btnPresetSansui: Button = findViewById(R.id.btnPresetSansui)
-        val btnPresetLobby: Button = findViewById(R.id.btnPresetLobby)
-        val btnPresetStendy: Button = findViewById(R.id.btnPresetStendy)
+        val etDeviceKey: EditText = findViewById(R.id.etDeviceKey)
+        // Debug presets were removed: they pointed production TVs at fixed screen ids.
+        listOf(R.id.btnPresetSansui, R.id.btnPresetLobby, R.id.btnPresetStendy).forEach {
+            findViewById<Button>(it).visibility = View.GONE
+        }
         val btnOverlayPermission: Button = findViewById(R.id.btnOverlayPermission)
         val btnTvHomeLauncher: Button = findViewById(R.id.btnTvHomeLauncher)
         val btnLaunch: Button = findViewById(R.id.btnLaunch)
@@ -123,20 +139,9 @@ class MainActivity : AppCompatActivity() {
 
         etServerUrl.setText(savedServer)
         etScreenId.setText(savedScreen)
+        etDeviceKey.setText(prefs.getString(KEY_DEVICE_KEY, "") ?: "")
         cbAutoBoot.isChecked = autoBoot
         updateAutoBootStatusLabel()
-
-        btnPresetSansui.setOnClickListener {
-            etScreenId.setText("DYPIU-TV-012")
-        }
-
-        btnPresetLobby.setOnClickListener {
-            etScreenId.setText("DYPIU-TV-001")
-        }
-
-        btnPresetStendy.setOnClickListener {
-            etScreenId.setText("DYPIU-STENDY")
-        }
 
         btnOverlayPermission.setOnClickListener {
             openOverlayPermissionSettings()
@@ -148,13 +153,21 @@ class MainActivity : AppCompatActivity() {
 
         btnLaunch.setOnClickListener {
             val server = etServerUrl.text.toString().trim().trimEnd('/')
-                .ifEmpty { DEFAULT_SERVER_URL }
             val screenId = etScreenId.text.toString().trim()
-                .ifEmpty { DEFAULT_SCREEN_ID }
+            val deviceKey = etDeviceKey.text.toString().trim()
+            if (server.isEmpty() || screenId.isEmpty()) {
+                android.widget.Toast.makeText(
+                    this,
+                    "Enter the server address (e.g. http://192.168.1.10:5000) and the Screen ID.",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
 
             prefs.edit()
                 .putString(KEY_SERVER_URL, server)
                 .putString(KEY_SCREEN_ID, screenId)
+                .putString(KEY_DEVICE_KEY, deviceKey)
                 .putBoolean(KEY_AUTO_BOOT, cbAutoBoot.isChecked)
                 .putBoolean(KEY_CONFIGURED, true)
                 .apply()
@@ -296,7 +309,7 @@ class MainActivity : AppCompatActivity() {
         settings.displayZoomControls = false
         settings.textZoom = 100
         settings.cacheMode = WebSettings.LOAD_DEFAULT
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun getDefaultVideoPoster(): Bitmap {
@@ -333,9 +346,11 @@ class MainActivity : AppCompatActivity() {
             "http://$serverBaseUrl"
         }
         lastBaseServerUrl = normalized
+        val deviceKey = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_DEVICE_KEY, "") ?: ""
         val uri = Uri.parse(normalized).buildUpon()
             .appendQueryParameter("tv", screenId)
             .appendQueryParameter("kiosk", "1")
+            .apply { if (deviceKey.isNotEmpty()) appendQueryParameter("key", deviceKey) }
             .build()
         currentLoadedUrl = uri.toString()
         hasLoadError = false
@@ -365,10 +380,9 @@ class MainActivity : AppCompatActivity() {
         otaInProgress = true
         otaExecutor.execute {
             try {
-                val parsed = Uri.parse(serverBaseUrl)
-                val host = parsed.host ?: return@execute
-                val scheme = parsed.scheme ?: "http"
-                val versionUrl = URL("$scheme://$host:5000/api/v1/device/app-version")
+                val base = apiBase(serverBaseUrl) ?: return@execute
+                val serverHost = Uri.parse(base).host
+                val versionUrl = URL("$base/api/v1/device/app-version")
                 val conn = (versionUrl.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 5000
                     readTimeout = 5000
@@ -380,22 +394,36 @@ class MainActivity : AppCompatActivity() {
                 if (!json.optBoolean("success", false)) return@execute
                 val remoteCode = json.optLong("versionCode", 0L)
                 val apkUrlStr = json.optString("apkUrl", "")
+                val expectedSha = json.optString("sha256", "").lowercase()
                 if (remoteCode <= getInstalledVersionCode() || apkUrlStr.isEmpty()) {
                     return@execute
                 }
+                // Safety: only install an APK served by the configured server AND matching the advertised SHA-256.
+                if (expectedSha.length != 64 || URL(apkUrlStr).host != serverHost) return@execute
 
-                // Download updated APK directly over Wi-Fi into cache
-                val apkFile = File(cacheDir, "CampusCast-TV-update.apk")
+                val apkFile = File(cacheDir, "NEXORA-TV-update.apk")
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
                 val dlConn = (URL(apkUrlStr).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10000
                     readTimeout = 30000
                 }
                 dlConn.inputStream.use { input ->
                     FileOutputStream(apkFile).use { output ->
-                        input.copyTo(output)
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            digest.update(buf, 0, n)
+                            output.write(buf, 0, n)
+                        }
                     }
                 }
                 dlConn.disconnect()
+                val actualSha = digest.digest().joinToString("") { "%02x".format(it) }
+                if (actualSha != expectedSha) {
+                    apkFile.delete()
+                    return@execute
+                }
 
                 handler.post {
                     try {

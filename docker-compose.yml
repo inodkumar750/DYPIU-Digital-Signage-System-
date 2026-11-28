@@ -1,0 +1,40 @@
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      MARIADB_DATABASE: campuscast_db
+    volumes:
+      - dbdata:/var/lib/mysql
+      - ./campuscast_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: campuscast_db
+      CAMPUSCAST_AUTH_SECRET: ${CAMPUSCAST_AUTH_SECRET:?set CAMPUSCAST_AUTH_SECRET in .env}
+      CAMPUSCAST_PUBLIC_URL: ${CAMPUSCAST_PUBLIC_URL:-}
+      CAMPUSCAST_TIMEZONE: ${CAMPUSCAST_TIMEZONE:-Asia/Kolkata}
+      CAMPUSCAST_REQUIRE_DEVICE_KEY: ${CAMPUSCAST_REQUIRE_DEVICE_KEY:-0}
+      CAMPUSCAST_BOOTSTRAP_PASSWORD: ${CAMPUSCAST_BOOTSTRAP_PASSWORD:-}
+      CAMPUSCAST_ALERT_WEBHOOK_URL: ${CAMPUSCAST_ALERT_WEBHOOK_URL:-}
+    ports:
+      - "5000:5000"
+    volumes:
+      - uploads:/app/server/uploads
+
+volumes:
+  dbdata:
+  uploads:

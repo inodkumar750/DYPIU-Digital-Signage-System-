@@ -186,9 +186,18 @@
         return '';
       }
 
-      var screenId = getParam('tv') || getParam('screenId') || getParam('screen') || 'DYPIU-STENDY';
+      var screenId = getParam('tv') || getParam('screenId') || getParam('screen') || '';
+      var deviceKey = getParam('key') || '';
+      try {
+        if (deviceKey) window.localStorage.setItem('nexora_device_key', deviceKey);
+        else deviceKey = window.localStorage.getItem('nexora_device_key') || '';
+      } catch (e) {}
       var host = window.location.hostname || 'localhost';
-      var apiBase = 'http://' + host + ':5000/api/v1';
+      var port = window.location.port;
+      // Served by the API itself (port 5000 / reverse proxy) -> same origin; dev server -> API on :5000.
+      var apiBase = (port === '5000' || port === '' || window.location.protocol === 'https:')
+        ? window.location.origin + '/api/v1'
+        : 'http://' + host + ':5000/api/v1';
 
       var imgEl = document.getElementById('imgPlayer');
       var vidEl = document.getElementById('vidPlayer');
@@ -229,6 +238,7 @@
       function httpGetJson(url, cb) {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', url, true);
+        if (deviceKey) xhr.setRequestHeader('X-Device-Key', deviceKey);
         xhr.timeout = 5000;
         xhr.onreadystatechange = function () {
           if (xhr.readyState === 4) {
@@ -339,6 +349,10 @@
             return;
           }
 
+          // Ticker visibility now travels inside the manifest (the settings endpoint is admin-only).
+          var hideFromUrl = getParam('ticker') === '0' || getParam('hideTicker') === '1';
+          footerEl.style.display = (!hideFromUrl && data.showTvTicker !== false) ? 'flex' : 'none';
+
           if (data.screenName) {
             scrSubEl.textContent = data.screenName + ' · ' + (data.building || '') + ' (' + (data.floor || '') + ')';
           }
@@ -392,30 +406,23 @@
           }
         });
 
-        httpGetJson(apiBase + '/settings', function (err, sRes) {
-          if (!err && sRes && sRes.success && sRes.data) {
-            var hideFromUrl = getParam('ticker') === '0' || getParam('hideTicker') === '1';
-            var show = !hideFromUrl && sRes.data.showTvTicker !== false;
-            footerEl.style.display = show ? 'flex' : 'none';
-          }
-        });
       }
 
       function sendHeartbeat() {
         var xhr = new XMLHttpRequest();
         xhr.open('POST', apiBase + '/device/' + encodeURIComponent(screenId) + '/heartbeat', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
+        if (deviceKey) xhr.setRequestHeader('X-Device-Key', deviceKey);
         xhr.send(JSON.stringify({
           currentMediaId: currentMediaId,
-          storageUsedPct: 35,
-          playerAppVersion: 'v1.4.2-compat',
+          playerAppVersion: 'compat-player',
           playbackError: null
         }));
       }
 
       pollManifest();
       sendHeartbeat();
-      setInterval(pollManifest, 3000);
+      setInterval(pollManifest, 10000);
       setInterval(sendHeartbeat, 15000);
     })();
   </script>

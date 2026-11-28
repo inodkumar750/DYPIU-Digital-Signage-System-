@@ -84,6 +84,8 @@ function patchChunkOffsetsInMoov(moovBuf, deltaBytes) {
  */
 export function ensureMp4FastStart(filePath) {
   try {
+    // Whole-file rewrite is only attempted for files up to 250 MB to bound memory use.
+    if (fs.statSync(filePath).size > 250 * 1024 * 1024) return false;
     const buf = fs.readFileSync(filePath);
     const boxes = readBoxes(buf);
     if (!boxes) return false;
@@ -113,5 +115,66 @@ export function ensureMp4FastStart(filePath) {
   } catch (err) {
     console.warn('FastStart skip:', err?.message || err);
     return false;
+  }
+}
+
+/**
+ * Reads the real duration (seconds) of an MP4/MOV from its `mvhd` atom without loading the file into memory.
+ * Returns null when it cannot be determined (caller falls back to the user-supplied value).
+ */
+export function readMp4DurationSeconds(filePath) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const total = fs.fstatSync(fd).size;
+    const head = Buffer.alloc(16);
+    let pos = 0;
+    while (pos + 8 <= total) {
+      fs.readSync(fd, head, 0, 16, pos);
+      let size = head.readUInt32BE(0);
+      const type = head.toString('ascii', 4, 8);
+      let hdr = 8;
+      if (size === 1) {
+        size = Number(head.readBigUInt64BE(8));
+        hdr = 16;
+      } else if (size === 0) {
+        size = total - pos;
+      }
+      if (!Number.isFinite(size) || size < hdr) return null;
+      if (type === 'moov') {
+        if (size > 64 * 1024 * 1024) return null;
+        const moov = Buffer.alloc(size - hdr);
+        fs.readSync(fd, moov, 0, moov.length, pos + hdr);
+        // find 'mvhd' directly inside moov
+        let p = 0;
+        while (p + 8 <= moov.length) {
+          const bs = moov.readUInt32BE(p);
+          const bt = moov.toString('ascii', p + 4, p + 8);
+          if (bs < 8) return null;
+          if (bt === 'mvhd') {
+            const version = moov[p + 8];
+            let timescale;
+            let duration;
+            if (version === 1) {
+              timescale = moov.readUInt32BE(p + 8 + 4 + 16);
+              duration = Number(moov.readBigUInt64BE(p + 8 + 4 + 20));
+            } else {
+              timescale = moov.readUInt32BE(p + 8 + 4 + 8);
+              duration = moov.readUInt32BE(p + 8 + 4 + 12);
+            }
+            if (!timescale || !duration) return null;
+            return Math.max(1, Math.round(duration / timescale));
+          }
+          p += bs;
+        }
+        return null;
+      }
+      pos += size;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
   }
 }

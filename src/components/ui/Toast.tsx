@@ -1,10 +1,10 @@
 import React from 'react';
-import { CheckCircle2, Info, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 
 export interface ToastMessage {
   id: string;
   text: string;
-  tone?: 'info' | 'success';
+  tone?: 'info' | 'success' | 'error';
 }
 
 interface ToastContainerProps {
@@ -23,11 +23,15 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismis
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="pointer-events-auto flex items-start justify-between gap-3 px-4 py-3 rounded-xl bg-[#290044] text-white border border-[#8A2A78]/50 shadow-lg text-sm"
+          className={`pointer-events-auto flex items-start justify-between gap-3 px-4 py-3 rounded-xl text-white shadow-lg text-sm border ${
+            toast.tone === 'error' ? 'bg-[#7f1d1d] border-red-400/60' : 'bg-[#290044] border-[#8A2A78]/50'
+          }`}
         >
           <div className="flex items-start gap-2.5 min-w-0">
             {toast.tone === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-[#EEE3B0] shrink-0 mt-0.5" />
+            ) : toast.tone === 'error' ? (
+              <AlertTriangle className="w-4 h-4 text-red-200 shrink-0 mt-0.5" />
             ) : (
               <Info className="w-4 h-4 text-[#EEE3B0] shrink-0 mt-0.5" />
             )}

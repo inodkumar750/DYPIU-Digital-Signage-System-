@@ -10,3 +10,7 @@ server/uploads/
 android-tv-app/.gradle/
 android-tv-app/local.properties
 android-tv-app/CampusCast-TV.apk
+
+server/.auth-secret
+server/uploads/
+*.tmp

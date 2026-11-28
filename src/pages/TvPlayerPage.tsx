@@ -22,7 +22,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import { Campaign, MediaAsset, Playlist, ScreenDevice, ScreenGroup } from '../types/signage';
-import { formatMediaUrl } from '../api/signageApi';
+import { API_BASE, formatMediaUrl, getAuthToken, getDeviceKey } from '../api/signageApi';
 import { resolveActiveCampaignForScreen } from '../utils/campaignSchedule';
 
 // Isolated Clock Component to prevent re-rendering the slide rotation engine
@@ -146,7 +146,17 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
   const logoTapTimerRef = useRef<number | null>(null);
   const tickerSyncPauseUntilRef = useRef<number>(0);
 
-  const apiHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  // Auth for write calls made from this page: the admin's session, or the TV's own device key.
+  const playerHeaders = (): Record<string, string> => {
+    const token = getAuthToken();
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) h.Authorization = `Bearer ${token}`;
+    else {
+      h['X-Device-Key'] = getDeviceKey();
+      h['X-Screen-Id'] = selectedScreenId || '';
+    }
+    return h;
+  };
 
   // Keep selectedScreenId synced if launched with a new initialScreenId
   useEffect(() => {
@@ -204,102 +214,85 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     setLiveShowTicker(showTvTicker);
   }, [showTvTicker]);
 
-  // Live Auto-Sync: Poll MySQL every 3 seconds so ANY edit or schedule on laptop updates phone/TV immediately!
+  // Live auto-sync.
+  //  • Kiosk / TV (no admin session): one lightweight, version-checked request to /device/:id/feed.
+  //    The server answers {unchanged:true} when nothing relevant changed, so an idle TV costs almost nothing.
+  //  • Admin preview (signed-in): the authenticated CMS endpoints.
   useEffect(() => {
+    let feedVersion = '';
+    let cancelled = false;
+
+    const same = <T,>(prev: T | null, next: T) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+
+    const applyData = (d: {
+      screens?: ScreenDevice[];
+      playlists?: Playlist[];
+      media?: MediaAsset[];
+      campaigns?: Campaign[];
+      groups?: ScreenGroup[];
+      settings?: any;
+    }) => {
+      if (Array.isArray(d.screens)) {
+        const incoming = d.screens;
+        setLiveScreens((prev) => {
+          if (prev && JSON.stringify(prev) === JSON.stringify(incoming)) return prev;
+          const oldMatch = prev?.find((x) => x.id === selectedScreenId);
+          const newMatch = incoming.find((x) => x.id === selectedScreenId);
+          if (oldMatch && newMatch && oldMatch.assignedPlaylistId !== newMatch.assignedPlaylistId) {
+            setCurrentSlideIndex(0);
+          }
+          return incoming;
+        });
+      }
+      if (Array.isArray(d.playlists)) setLivePlaylists((prev) => same(prev, d.playlists!));
+      if (Array.isArray(d.media)) setLiveMedia((prev) => same(prev, d.media!));
+      if (Array.isArray(d.campaigns)) setLiveCampaigns((prev) => same(prev, d.campaigns!));
+      if (Array.isArray(d.groups)) setLiveGroups((prev) => same(prev, d.groups!));
+      if (d.settings && Date.now() >= tickerSyncPauseUntilRef.current) {
+        const p = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        if (!p || (!p.has('ticker') && !p.has('hideTicker'))) {
+          setLiveShowTicker(d.settings.showTvTicker !== false);
+        }
+      }
+    };
+
     const fetchLatestData = async () => {
       try {
-        const [screenRes, playlistRes, mediaRes, campaignRes, groupRes, settingsRes] = await Promise.allSettled([
-          fetch(`http://${apiHost}:5000/api/v1/screens`),
-          fetch(`http://${apiHost}:5000/api/v1/playlists`),
-          fetch(`http://${apiHost}:5000/api/v1/media`),
-          fetch(`http://${apiHost}:5000/api/v1/campaigns`),
-          fetch(`http://${apiHost}:5000/api/v1/groups`),
-          fetch(`http://${apiHost}:5000/api/v1/settings`),
-        ]);
-
-        if (screenRes.status === 'fulfilled') {
-          const sJson = await screenRes.value.json();
-          if (sJson.success && Array.isArray(sJson.data)) {
-            setLiveScreens((prev) => {
-              if (prev && JSON.stringify(prev) === JSON.stringify(sJson.data)) {
-                return prev;
-              }
-              const oldMatch = prev?.find((s) => s.id === selectedScreenId);
-              const newMatch = sJson.data.find((s: ScreenDevice) => s.id === selectedScreenId);
-              if (oldMatch && newMatch && oldMatch.assignedPlaylistId !== newMatch.assignedPlaylistId) {
-                setCurrentSlideIndex(0);
-              }
-              return sJson.data;
-            });
+        const token = getAuthToken();
+        if (token) {
+          const h = { Authorization: `Bearer ${token}` };
+          const [sR, pR, mR, cR, gR, stR] = await Promise.allSettled(
+            ['screens', 'playlists', 'media', 'campaigns', 'groups', 'settings'].map((e) =>
+              fetch(`${API_BASE}/${e}`, { headers: h }).then((r) => r.json())
+            )
+          );
+          const ok = (r: PromiseSettledResult<any>) => (r.status === 'fulfilled' && r.value?.success ? r.value.data : undefined);
+          if (!cancelled) {
+            applyData({ screens: ok(sR), playlists: ok(pR), media: ok(mR), campaigns: ok(cR), groups: ok(gR), settings: ok(stR) });
+          }
+        } else if (selectedScreenId) {
+          const res = await fetch(
+            `${API_BASE}/device/${encodeURIComponent(selectedScreenId)}/feed?v=${encodeURIComponent(feedVersion)}`,
+            { headers: { 'X-Device-Key': getDeviceKey() } }
+          );
+          const json = await res.json();
+          if (!cancelled && json.success && !json.unchanged && json.data) {
+            feedVersion = json.version;
+            applyData(json.data);
           }
         }
-
-        if (playlistRes.status === 'fulfilled') {
-          const pJson = await playlistRes.value.json();
-          if (pJson.success && Array.isArray(pJson.data)) {
-            setLivePlaylists((prev) => {
-              if (prev && JSON.stringify(prev) === JSON.stringify(pJson.data)) {
-                return prev;
-              }
-              return pJson.data;
-            });
-          }
-        }
-
-        if (mediaRes.status === 'fulfilled') {
-          const mJson = await mediaRes.value.json();
-          if (mJson.success && Array.isArray(mJson.data)) {
-            setLiveMedia((prev) => {
-              if (prev && JSON.stringify(prev) === JSON.stringify(mJson.data)) {
-                return prev;
-              }
-              return mJson.data;
-            });
-          }
-        }
-
-        if (campaignRes.status === 'fulfilled') {
-          const cJson = await campaignRes.value.json();
-          if (cJson.success && Array.isArray(cJson.data)) {
-            setLiveCampaigns((prev) => {
-              if (prev && JSON.stringify(prev) === JSON.stringify(cJson.data)) {
-                return prev;
-              }
-              return cJson.data;
-            });
-          }
-        }
-
-        if (groupRes.status === 'fulfilled') {
-          const gJson = await groupRes.value.json();
-          if (gJson.success && Array.isArray(gJson.data)) {
-            setLiveGroups((prev) => {
-              if (prev && JSON.stringify(prev) === JSON.stringify(gJson.data)) {
-                return prev;
-              }
-              return gJson.data;
-            });
-          }
-        }
-
-        if (settingsRes.status === 'fulfilled') {
-          const setJson = await settingsRes.value.json();
-          if (setJson.success && setJson.data && Date.now() >= tickerSyncPauseUntilRef.current) {
-            const p = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-            if (!p || (!p.has('ticker') && !p.has('hideTicker'))) {
-              setLiveShowTicker(setJson.data.showTvTicker !== false);
-            }
-          }
-        }
-      } catch (err) {
-        // Silently continue if server unreachable
+      } catch {
+        // Server unreachable: keep playing the last known playlist (offline resilience).
       }
     };
 
     fetchLatestData();
-    const pollInterval = window.setInterval(fetchLatestData, 3000);
-    return () => clearInterval(pollInterval);
-  }, [apiHost, selectedScreenId]);
+    const pollInterval = window.setInterval(fetchLatestData, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+    };
+  }, [selectedScreenId]);
 
   const currentScreens = liveScreens || screens;
   const currentPlaylists = livePlaylists || playlists;
@@ -401,9 +394,9 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     );
     onAssignScreenPlaylist?.(activeScreen.id, newPlaylistId);
     try {
-      await fetch(`http://${apiHost}:5000/api/v1/screens/${activeScreen.id}/assign-playlist`, {
+      await fetch(`${API_BASE}/screens/${activeScreen.id}/assign-playlist`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: playerHeaders(),
         body: JSON.stringify({ assignedPlaylistId: newPlaylistId }),
       });
       // If a single-screen Active Campaign is overriding this TV, pause it so the admin's manual playlist switch applies immediately on the physical TV
@@ -414,9 +407,9 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
         (!activeCampaign.targetGroupIds || activeCampaign.targetGroupIds.length === 0) &&
         activeCampaign.targetScreenIds.length <= 1
       ) {
-        await fetch(`http://${apiHost}:5000/api/v1/campaigns/${activeCampaign.id}/status`, {
+        await fetch(`${API_BASE}/campaigns/${activeCampaign.id}/status`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: playerHeaders(),
           body: JSON.stringify({ status: 'Paused' }),
         });
         setLiveCampaigns((prev) =>
@@ -560,16 +553,17 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
   // Live Heartbeat Telemetry (sends real ping every 15s while screen is active)
   useEffect(() => {
     if (!activeScreen || activeScreen.isActive === false) return;
+    // An admin merely previewing a screen must not make it look Online; real TVs (kiosk/cast/no session) do report.
+    if (getAuthToken() && !isKioskMode && !isCastMode) return;
 
     const sendHeartbeat = async () => {
       try {
-        await fetch(`http://${apiHost}:5000/api/v1/device/${activeScreen.id}/heartbeat`, {
+        await fetch(`${API_BASE}/device/${activeScreen.id}/heartbeat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: playerHeaders(),
           body: JSON.stringify({
             currentMediaId: currentSlide?.mediaId || null,
-            storageUsedPct: activeScreen.storageUsedPct || 42,
-            playerAppVersion: 'v1.4.2-web',
+            playerAppVersion: 'web-player',
             playbackError: null,
           }),
         });
@@ -581,7 +575,7 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     sendHeartbeat();
     const heartbeatTimer = window.setInterval(sendHeartbeat, 15000);
     return () => clearInterval(heartbeatTimer);
-  }, [apiHost, activeScreen?.id, activeScreen?.isActive, currentSlide?.mediaId]);
+  }, [activeScreen?.id, activeScreen?.isActive, currentSlide?.mediaId, isKioskMode, isCastMode]);
 
   // Auto-hide controls when mouse is inactive (disabled when Kiosk locked)
   const handleRevealControls = () => {
@@ -641,9 +635,9 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
       onToggleTvTicker(next);
     }
     try {
-      await fetch(`http://${apiHost}:5000/api/v1/settings/ticker`, {
+      await fetch(`${API_BASE}/settings/ticker`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: playerHeaders(),
         body: JSON.stringify({ showTvTicker: next }),
       });
       setCastHint(

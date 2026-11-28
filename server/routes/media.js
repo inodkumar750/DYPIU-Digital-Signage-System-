@@ -2,176 +2,194 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { pool } from '../db.js';
-import { ensureMp4FastStart } from '../utils/mp4FastStart.js';
+import { pool, withTx } from '../db.js';
+import { config } from '../config.js';
+import { requireMenu } from '../middleware/auth.js';
+import { asyncHandler, badRequest, conflict, newId, notFound, oneOf, str } from '../utils/http.js';
+import { ensureMp4FastStart, readMp4DurationSeconds } from '../utils/mp4FastStart.js';
+import { listMedia } from '../services/serializers.js';
+import { formatTimestamp } from '../utils/heartbeat.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+export const uploadDir = path.join(__dirname, '..', 'uploads');
+fs.mkdirSync(uploadDir, { recursive: true });
 
-const uploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm']);
+const CATEGORIES = ['University Admissions', 'Events', 'Workshops', 'Placements', 'Student Activities', 'Announcements'];
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
+  destination: (req, file, cb) => cb(null, uploadDir),
+  // Random server-side name: no user-controlled path/extension reaches the disk (prevents overwrite + stored XSS tricks).
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const cleanName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    cb(null, `${cleanName}_${Date.now()}${ext}`);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${crypto.randomBytes(12).toString('hex')}${ext}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB max
+  limits: { fileSize: Math.max(config.maxImageMb, config.maxVideoMb) * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const isImg = IMAGE_EXT.has(ext) && file.mimetype.startsWith('image/');
+    const isVid = VIDEO_EXT.has(ext) && file.mimetype.startsWith('video/');
+    if (isImg || isVid) return cb(null, true);
+    cb(badRequest('Unsupported file. Allowed: JPG, PNG, GIF, WebP images and MP4, MOV, WebM videos.'));
+  },
 });
+
+function removeFile(p) {
+  fs.promises.unlink(p).catch(() => {});
+}
+
+/** Deletes a stored upload (only ever inside the uploads directory). */
+function removeUploadByUrl(fileUrl) {
+  if (!fileUrl || !fileUrl.startsWith('/uploads/')) return;
+  const target = path.join(uploadDir, path.basename(fileUrl));
+  if (path.dirname(target) === uploadDir) removeFile(target);
+}
 
 const router = Router();
+const canEdit = requireMenu('media');
 
-// GET all media
-router.get('/', async (req, res) => {
-  try {
-    const [rows] = await pool.query('SELECT * FROM media_assets ORDER BY created_at DESC');
-    const media = rows.map((r) => ({
-      id: r.id,
-      fileName: r.file_name,
-      title: r.title,
-      type: r.type,
-      category: r.category,
-      uploadDate: r.upload_date,
-      durationSeconds: r.duration_seconds,
-      fileSize: r.file_size,
-      dimensions: r.dimensions,
-      aspectRatio:
-        r.aspect_ratio ||
-        (r.dimensions && r.dimensions.includes('1080 × 1920') ? '9:16' : '16:9'),
-      thumbnailUrl: r.thumbnail_url || r.file_url,
-      fileUrl: r.file_url,
-      accentTone: r.accent_tone,
-      uploadedBy: r.uploaded_by,
-      description: r.description,
-    }));
-    res.json({ success: true, data: media });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    res.json({ success: true, data: await listMedia() });
+  })
+);
 
-// POST upload media file
-router.post('/upload', upload.single('file'), async (req, res) => {
-  try {
-    const {
+router.post(
+  '/upload',
+  canEdit,
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    const file = req.file;
+    const b = req.body || {};
+    try {
+      const title = str(b.title, { field: 'Title', max: 255 });
+      const category = oneOf(b.category, CATEGORIES, { field: 'Category', fallback: 'University Admissions' });
+      const aspectRatio = b.aspectRatio === '9:16' ? '9:16' : '16:9';
+      const dimensions = str(b.dimensions, { max: 50 }) || (aspectRatio === '9:16' ? '1080 × 1920' : '1920 × 1080');
+      const description = str(b.description, { max: 2000 });
+      const id = newId('med');
+      const uploadDate = formatTimestamp(Date.now()).slice(0, 10);
+
+      let isVideo;
+      let fileName;
+      let fileUrl;
+      let fileSize;
+      let duration = null;
+
+      if (file) {
+        const ext = path.extname(file.originalname).toLowerCase();
+        isVideo = VIDEO_EXT.has(ext);
+        const limitMb = isVideo ? config.maxVideoMb : config.maxImageMb;
+        if (file.size > limitMb * 1024 * 1024) {
+          removeFile(file.path);
+          throw badRequest(`${isVideo ? 'Video' : 'Image'} size exceeds the ${limitMb} MB limit.`);
+        }
+        if (isVideo && /\.(mp4|m4v|mov)$/i.test(ext)) {
+          ensureMp4FastStart(file.path);
+          duration = readMp4DurationSeconds(file.path);
+        }
+        if (isVideo && !duration) duration = Math.max(1, parseInt(b.durationSeconds || '30', 10) || 30);
+        const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9 _.-]/g, '_').slice(0, 120);
+        fileName = `${base}${ext}`;
+        fileUrl = `/uploads/${file.filename}`;
+        fileSize = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+      } else {
+        // Metadata-only record: only built-in sample assets may be referenced (no arbitrary external URLs).
+        const url = str(b.fileUrl, { max: 255 });
+        if (!url || !/^\/(src\/assets|uploads)\//.test(url) || url.includes('..')) {
+          throw badRequest('Please choose a file to upload.');
+        }
+        isVideo = b.type === 'Video';
+        fileUrl = url;
+        fileName = str(b.fileName, { max: 255, fallback: path.basename(url) });
+        fileSize = str(b.fileSize, { max: 50, fallback: 'n/a' });
+        if (isVideo) duration = Math.max(1, parseInt(b.durationSeconds || '30', 10) || 30);
+      }
+
+      await pool.query(
+        `INSERT INTO media_assets (id, file_name, title, type, category, upload_date, duration_seconds, file_size, dimensions, aspect_ratio, thumbnail_url, file_url, uploaded_by, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, fileName, title || fileName, isVideo ? 'Video' : 'Image', category, uploadDate, duration, fileSize, dimensions, aspectRatio, fileUrl, fileUrl, req.user.name, description]
+      );
+
+      res.json({
+        success: true,
+        data: {
+          id,
+          fileName,
+          title: title || fileName,
+          type: isVideo ? 'Video' : 'Image',
+          category,
+          uploadDate,
+          durationSeconds: duration ?? undefined,
+          fileSize,
+          dimensions,
+          aspectRatio,
+          thumbnailUrl: fileUrl,
+          fileUrl,
+          uploadedBy: req.user.name,
+          description,
+        },
+      });
+    } catch (err) {
+      if (file) removeFile(file.path); // never leave orphan files behind on validation / DB errors
+      throw err;
+    }
+  })
+);
+
+router.put(
+  '/:id',
+  canEdit,
+  asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const title = str(b.title, { field: 'Title', max: 255, required: true });
+    const category = oneOf(b.category, CATEGORIES, { field: 'Category' });
+    const [r] = await pool.query('UPDATE media_assets SET title=?, category=?, description=? WHERE id=?', [
       title,
       category,
-      type,
-      durationSeconds,
-      description,
-      uploadedBy,
-      aspectRatio: rawAspectRatio,
-      dimensions: rawDimensions,
-    } = req.body;
-    const file = req.file;
-
-    // Enforce limits: 20 MB for Images, 30 MB for Videos
-    if (file) {
-      const isVideoCheck = file.mimetype.startsWith('video/') || /\.(mp4|webm|mov|mkv)$/i.test(file.originalname);
-      if (!isVideoCheck && file.size > 20 * 1024 * 1024) {
-        fs.unlinkSync(file.path);
-        return res.status(400).json({ success: false, error: 'Image size exceeds maximum allowed limit of 20 MB.' });
-      }
-      if (isVideoCheck && file.size > 30 * 1024 * 1024) {
-        fs.unlinkSync(file.path);
-        return res.status(400).json({ success: false, error: 'Video size exceeds maximum allowed limit of 30 MB.' });
-      }
-      if (isVideoCheck && /\.(mp4|m4v|mov)$/i.test(file.originalname)) {
-        ensureMp4FastStart(file.path);
-      }
-    }
-
-    const id = `med-${Date.now().toString().slice(-4)}`;
-    const uploadDate = new Date().toISOString().substring(0, 10);
-    const fileSize = file ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : (req.body.fileSize || '2.5 MB');
-    const isVideo = type === 'Video' || (file && file.mimetype.startsWith('video/')) || (file && /\.(mp4|webm|mov|mkv)$/i.test(file.originalname));
-    const fileName = file ? file.filename : (req.body.fileName || `asset_${id}.${isVideo ? 'mp4' : 'jpg'}`);
-    const fileUrl = file ? `/uploads/${file.filename}` : (req.body.fileUrl || '');
-    const thumbnailUrl = file ? `/uploads/${file.filename}` : (req.body.thumbnailUrl || fileUrl);
-    const aspectRatio = rawAspectRatio === '9:16' ? '9:16' : '16:9';
-    const dimensions = rawDimensions || (aspectRatio === '9:16' ? '1080 × 1920' : '1920 × 1080');
-
-    await pool.query(
-      `INSERT INTO media_assets (id, file_name, title, type, category, upload_date, duration_seconds, file_size, dimensions, aspect_ratio, thumbnail_url, file_url, uploaded_by, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        fileName,
-        title || fileName,
-        isVideo ? 'Video' : 'Image',
-        category || 'University Admissions',
-        uploadDate,
-        isVideo ? parseInt(durationSeconds || '30', 10) : null,
-        fileSize,
-        dimensions,
-        aspectRatio,
-        thumbnailUrl,
-        fileUrl,
-        uploadedBy || 'Vinod Kumar Jain',
-        description || '',
-      ]
-    );
-
-    res.json({
-      success: true,
-      data: {
-        id,
-        fileName,
-        title: title || fileName,
-        type: isVideo ? 'Video' : 'Image',
-        category: category || 'University Admissions',
-        uploadDate,
-        durationSeconds: isVideo ? parseInt(durationSeconds || '30', 10) : undefined,
-        fileSize,
-        dimensions,
-        aspectRatio,
-        thumbnailUrl,
-        fileUrl,
-        uploadedBy: uploadedBy || 'Vinod Kumar Jain',
-        description: description || '',
-      },
-    });
-  } catch (err) {
-    console.error('Upload Error:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// PUT update media metadata
-router.put('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { title, category, description } = req.body;
-    await pool.query(
-      'UPDATE media_assets SET title=?, category=?, description=? WHERE id=?',
-      [title, category, description, id]
-    );
+      str(b.description, { max: 2000 }),
+      req.params.id,
+    ]);
+    if (r.affectedRows === 0) throw notFound('Media not found');
     res.json({ success: true, message: 'Media metadata updated' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+  })
+);
 
-// DELETE media asset
-router.delete('/:id', async (req, res) => {
-  try {
+/** Blocks deletion while the asset is in a playlist, unless ?force=1 (then it is removed from those playlists). */
+router.delete(
+  '/:id',
+  canEdit,
+  asyncHandler(async (req, res) => {
     const { id } = req.params;
-    await pool.query('DELETE FROM media_assets WHERE id=?', [id]);
+    const force = req.query.force === '1';
+    const fileUrl = await withTx(async (conn) => {
+      const [rows] = await conn.query('SELECT file_url FROM media_assets WHERE id=? FOR UPDATE', [id]);
+      if (rows.length === 0) throw notFound('Media not found');
+      const [uses] = await conn.query(
+        'SELECT DISTINCT p.name FROM playlist_items pi JOIN playlists p ON p.id = pi.playlist_id WHERE pi.media_id=? LIMIT 5',
+        [id]
+      );
+      if (uses.length > 0 && !force) {
+        throw conflict(
+          `This file is used in playlist(s): ${uses.map((u) => `"${u.name}"`).join(', ')}. Remove it from them first, or delete anyway to remove it everywhere.`
+        );
+      }
+      await conn.query('DELETE FROM playlist_items WHERE media_id=?', [id]);
+      await conn.query('DELETE FROM media_assets WHERE id=?', [id]);
+      return rows[0].file_url;
+    });
+    removeUploadByUrl(fileUrl);
     res.json({ success: true, message: 'Media asset deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+  })
+);
 
 export default router;

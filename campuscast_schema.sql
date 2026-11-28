@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `status` ENUM('Active', 'Invited', 'Suspended') NOT NULL DEFAULT 'Active',
   `last_login` VARCHAR(100) DEFAULT 'Pending first login',
   `avatar_url` VARCHAR(255) DEFAULT NULL,
+  `allowed_menus` TEXT DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS `media_assets` (
   `duration_seconds` INT DEFAULT NULL,
   `file_size` VARCHAR(50) NOT NULL,
   `dimensions` VARCHAR(50) NOT NULL,
+  `aspect_ratio` VARCHAR(10) NOT NULL DEFAULT '16:9',
   `thumbnail_url` VARCHAR(255) DEFAULT NULL,
   `file_url` VARCHAR(255) DEFAULT NULL,
   `accent_tone` ENUM('primary', 'secondary', 'accent', 'cream') DEFAULT 'primary',
@@ -99,6 +101,7 @@ CREATE TABLE IF NOT EXISTS `screens` (
   `is_active` BOOLEAN NOT NULL DEFAULT TRUE,
   `pairing_code` VARCHAR(10) DEFAULT NULL,
   `device_token` VARCHAR(255) DEFAULT NULL,
+  `wake_requested` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
@@ -179,7 +182,7 @@ CREATE TABLE IF NOT EXISTS `publish_jobs` (
 -- 11. Activity Log
 CREATE TABLE IF NOT EXISTS `activity_events` (
   `id` VARCHAR(50) NOT NULL,
-  `action_type` ENUM('upload', 'playlist', 'campaign', 'screen', 'publish') NOT NULL,
+  `action_type` VARCHAR(30) NOT NULL,
   `title` VARCHAR(255) NOT NULL,
   `detail` TEXT NOT NULL,
   `actor` VARCHAR(150) NOT NULL,
@@ -202,11 +205,11 @@ CREATE TABLE IF NOT EXISTS `university_settings` (
 
 -- Seed Users
 INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `department`, `role`, `status`, `last_login`, `avatar_url`) VALUES
-('usr-001', 'Vinod Kumar Jain', 'vinod.jain@dypiu.ac.in', '$2a$10$w8T4N1yF07rD4J8.O2xSbeuK8D/y8zQe1Nq5xQ7j9F9Z8sZ9sZ9sZ', 'University IT & Infrastructure', 'Super Administrator', 'Active', 'Today, 09:14', '/src/assets/images/admin_avatar_1795455462108.jpg'),
-('usr-002', 'Prof. Sunita Rao', 'sunita.rao@dypiu.ac.in', '$2a$10$w8T4N1yF07rD4J8.O2xSbeuK8D/y8zQe1Nq5xQ7j9F9Z8sZ9sZ9sZ', 'Media & Corporate Communications', 'Content Manager', 'Active', 'Today, 08:45', NULL),
-('usr-003', 'Rajesh Sharma', 'rajesh.sharma@dypiu.ac.in', '$2a$10$w8T4N1yF07rD4J8.O2xSbeuK8D/y8zQe1Nq5xQ7j9F9Z8sZ9sZ9sZ', 'Network & Campus Infrastructure', 'IT Administrator', 'Active', 'Yesterday, 17:30', NULL),
-('usr-004', 'Pooja Iyer', 'pooja.iyer@dypiu.ac.in', '$2a$10$w8T4N1yF07rD4J8.O2xSbeuK8D/y8zQe1Nq5xQ7j9F9Z8sZ9sZ9sZ', 'Student Affairs & Cultural Events', 'Content Manager', 'Active', 'Nov 20, 14:15', NULL),
-('usr-005', 'Amit Verma', 'amit.verma@dypiu.ac.in', '$2a$10$w8T4N1yF07rD4J8.O2xSbeuK8D/y8zQe1Nq5xQ7j9F9Z8sZ9sZ9sZ', 'Campus Security Operations', 'Monitoring User', 'Active', 'Nov 19, 11:20', NULL)
+('usr-001', 'Vinod Kumar Jain', 'vinod.jain@dypiu.ac.in', 'RESET_ON_FIRST_START', 'University IT & Infrastructure', 'Super Administrator', 'Active', 'Today, 09:14', '/src/assets/images/admin_avatar_1795455462108.jpg'),
+('usr-002', 'Prof. Sunita Rao', 'sunita.rao@dypiu.ac.in', 'RESET_ON_FIRST_START', 'Media & Corporate Communications', 'Content Manager', 'Active', 'Today, 08:45', NULL),
+('usr-003', 'Rajesh Sharma', 'rajesh.sharma@dypiu.ac.in', 'RESET_ON_FIRST_START', 'Network & Campus Infrastructure', 'IT Administrator', 'Active', 'Yesterday, 17:30', NULL),
+('usr-004', 'Pooja Iyer', 'pooja.iyer@dypiu.ac.in', 'RESET_ON_FIRST_START', 'Student Affairs & Cultural Events', 'Content Manager', 'Active', 'Nov 20, 14:15', NULL),
+('usr-005', 'Amit Verma', 'amit.verma@dypiu.ac.in', 'RESET_ON_FIRST_START', 'Campus Security Operations', 'Monitoring User', 'Active', 'Nov 19, 11:20', NULL)
 ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
 -- Seed Media Assets

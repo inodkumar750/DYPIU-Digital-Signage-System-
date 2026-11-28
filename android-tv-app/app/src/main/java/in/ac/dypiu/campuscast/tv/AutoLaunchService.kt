@@ -84,11 +84,11 @@ class AutoLaunchService : Service() {
         }
         registerReceiver(screenReceiver, filter)
 
-        // Poll server every 5s for remote Wake/Reconnect request from Dashboard Monitoring
+        // Poll server every 15s for remote Wake/Reconnect request from Dashboard Monitoring
         wakePoller = Executors.newSingleThreadScheduledExecutor().apply {
             scheduleWithFixedDelay({
                 checkRemoteWakeSignal()
-            }, 5, 5, TimeUnit.SECONDS)
+            }, 10, 15, TimeUnit.SECONDS)
         }
     }
 
@@ -102,13 +102,14 @@ class AutoLaunchService : Service() {
             val serverUrl = prefs.getString(MainActivity.KEY_SERVER_URL, MainActivity.DEFAULT_SERVER_URL) ?: return
             val screenId = prefs.getString(MainActivity.KEY_SCREEN_ID, MainActivity.DEFAULT_SCREEN_ID) ?: return
 
-            val parsed = Uri.parse(serverUrl)
-            val host = parsed.host ?: return
-            val scheme = parsed.scheme ?: "http"
-            val url = URL("$scheme://$host:5000/api/v1/device/${Uri.encode(screenId)}/wake-status")
+            if (serverUrl.isEmpty() || screenId.isEmpty()) return
+            val base = MainActivity.apiBase(serverUrl) ?: return
+            val deviceKey = prefs.getString(MainActivity.KEY_DEVICE_KEY, "") ?: ""
+            val url = URL("$base/api/v1/device/${Uri.encode(screenId)}/wake-status")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 3000
                 readTimeout = 3000
+                if (deviceKey.isNotEmpty()) setRequestProperty("X-Device-Key", deviceKey)
             }
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()

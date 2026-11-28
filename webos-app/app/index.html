@@ -65,63 +65,78 @@
       text-align: center;
       max-width: 500px;
     }
-  </style>
-</head>
-<body>
-  <div class="splash" id="splash">
-    <div class="logo-wrap">
-      <img src="largeIcon.png" alt="DYPIU Logo">
-    </div>
-    <h1>NEXORA TV</h1>
-    <div class="subtitle">D.Y. Patil International University</div>
-    <div class="dots">
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
-    </div>
-    <div class="error-box" id="errBox"></div>
-  </div>
 
-  <script>
-    // ─── SERVER CONFIG ───────────────────────────────────────
-    // Change this IP if your server IP changes
-    var NEXORA_SERVER = localStorage.getItem('nexora_server') || 'http://10.40.53.80:3000';
-    var TV_URL = NEXORA_SERVER + '/tv?kiosk=1&ticker=1';
-    // ─────────────────────────────────────────────────────────
+    .setup { display:none; width:min(640px,90vw); background:rgba(255,255,255,0.06); border:1px solid rgba(238,227,176,0.25); border-radius:16px; padding:24px 28px; }
+    .setup label { display:block; font-size:14px; color:rgba(255,255,255,0.7); margin:12px 0 4px; }
+    .setup input { width:100%; padding:12px 14px; font-size:18px; border-radius:8px; border:2px solid #500071; background:#1a0830; color:#fff; }
+    .se<script>
+    // ─── CONFIG (set once on this TV; stored locally, nothing hard-coded) ───
+    var LS = window.localStorage;
+    function cfg() {
+      return {
+        server: (LS.getItem('nexora_server') || '').replace(/\/+$/, ''),
+        screen: LS.getItem('nexora_screen') || '',
+        key: LS.getItem('nexora_key') || ''
+      };
+    }
+    function $(id) { return document.getElementById(id); }
 
-    function goToPlayer() {
-      window.location.replace(TV_URL);
+    function playerUrl(c) {
+      // The player is served by the same server (production build on :5000, or dev server on :3000).
+      var url = c.server + '/tv?kiosk=1&ticker=1&tv=' + encodeURIComponent(c.screen);
+      if (c.key) url += '&key=' + encodeURIComponent(c.key);
+      return url;
     }
 
-    function showError(msg) {
-      var box = document.getElementById('errBox');
-      box.style.display = 'block';
-      box.textContent = msg;
+    function showError(msg) { var b = $('errBox'); b.style.display = 'block'; b.textContent = msg; }
+
+    var retryTimer = null;
+    function showSetup() {
+      clearTimeout(retryTimer);
+      var c = cfg();
+      $('srv').value = c.server; $('scr').value = c.screen; $('key').value = c.key;
+      $('setup').style.display = 'block';
+      $('srv').focus();
     }
 
-    // Try to reach server first, then redirect
     function tryConnect(attempt) {
+      var c = cfg();
+      if (!c.server || !c.screen) { showSetup(); return; }
       attempt = attempt || 1;
       var img = new Image();
-      img.onload = function() { goToPlayer(); };
-      img.onerror = function() {
+      var done = false;
+      var timeout = setTimeout(function () { if (!done) { done = true; fail(); } }, 6000);
+      function fail() {
         if (attempt < 5) {
           showError('Connecting to NEXORA server... (attempt ' + attempt + '/5)');
-          setTimeout(function() { tryConnect(attempt + 1); }, 3000);
+          retryTimer = setTimeout(function () { tryConnect(attempt + 1); }, 3000);
         } else {
-          showError(
-            'Cannot reach server at ' + NEXORA_SERVER +
-            '. Make sure your TV and server are on the same WiFi network. ' +
-            'Retrying in 10 seconds...'
-          );
-          setTimeout(function() { tryConnect(1); }, 10000);
+          showError('Cannot reach ' + c.server + '. Check Wi-Fi / server address (press YELLOW to edit). Retrying in 10 seconds...');
+          retryTimer = setTimeout(function () { tryConnect(1); }, 10000);
         }
-      };
-      img.src = NEXORA_SERVER + '/dypiu-logo.png?t=' + Date.now();
+      }
+      img.onload = function () { if (done) return; done = true; clearTimeout(timeout); window.location.replace(playerUrl(c)); };
+      img.onerror = function () { if (done) return; done = true; clearTimeout(timeout); fail(); };
+      img.src = c.server + '/dypiu-logo.png?t=' + Date.now();
     }
 
-    // Start connection after splash shows (1.5s)
-    setTimeout(function() { tryConnect(); }, 1500);
+    $('save').onclick = function () {
+      var srv = $('srv').value.trim();
+      if (srv && !/^https?:\/\//i.test(srv)) srv = 'http://' + srv;
+      LS.setItem('nexora_server', srv);
+      LS.setItem('nexora_screen', $('scr').value.trim());
+      LS.setItem('nexora_key', $('key').value.trim());
+      $('setup').style.display = 'none';
+      $('errBox').style.display = 'none';
+      tryConnect(1);
+    };
+
+    // YELLOW (405) or "S" opens the settings form
+    document.addEventListener('keydown', function (e) {
+      if (e.keyCode === 405 || e.keyCode === 83) showSetup();
+    });
+
+    setTimeout(function () { tryConnect(1); }, 1500);
   </script>
 </body>
 </html>

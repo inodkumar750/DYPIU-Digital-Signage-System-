@@ -10,284 +10,326 @@ import {
   UserAccount,
 } from '../types/signage';
 
-const API_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-const API_BASE = `http://${API_HOST}:5000/api/v1`;
+/* ───────────────────────── Base URL ───────────────────────── */
 
-// SCREENS
-export async function getScreens(): Promise<ScreenDevice[]> {
-  const res = await fetch(`${API_BASE}/screens`);
-  const json = await res.json();
-  return json.data || [];
+const TOKEN_KEY = 'campuscast_auth_token';
+
+function resolveApiOrigin(): string {
+  const fromEnv = (import.meta as any).env?.VITE_API_BASE as string | undefined;
+  if (fromEnv) return fromEnv.replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
+  if (typeof window === 'undefined') return 'http://localhost:5000';
+  const { protocol, hostname, port, origin } = window.location;
+  // Served by the API itself (production build) or behind a reverse proxy → same origin.
+  if (port === '5000' || port === '' || protocol === 'https:') return origin;
+  // Vite dev server (port 3000) → API on the same host, port 5000.
+  return `${protocol}//${hostname}:5000`;
 }
 
-export async function createScreen(screen: ScreenDevice): Promise<void> {
-  const res = await fetch(`${API_BASE}/screens`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(screen),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Failed to create screen: ${res.statusText}`);
+export const API_ORIGIN = resolveApiOrigin();
+export const API_BASE = `${API_ORIGIN}/api/v1`;
+
+export function getAuthToken(): string | null {
+  try {
+    return window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
   }
 }
 
-export async function updateScreenApi(screen: ScreenDevice): Promise<void> {
-  const res = await fetch(`${API_BASE}/screens/${screen.id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(screen),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Failed to update screen: ${res.statusText}`);
+/** Device key used by kiosk/TV players (passed once as ?key=… and remembered). */
+export function getDeviceKey(): string {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('key');
+    if (fromUrl) {
+      window.localStorage.setItem('nexora_device_key', fromUrl);
+      return fromUrl;
+    }
+    return window.localStorage.getItem('nexora_device_key') || '';
+  } catch {
+    return '';
   }
 }
 
-export async function assignScreenPlaylistApi(screenId: string, assignedPlaylistId: string | null): Promise<void> {
-  const res = await fetch(`${API_BASE}/screens/${screenId}/assign-playlist`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assignedPlaylistId }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Failed to assign playlist: ${res.statusText}`);
+/* ───────────────────────── Request core ───────────────────────── */
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
   }
 }
 
-export async function deleteScreenApi(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/screens/${id}`, { method: 'DELETE' });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Failed to delete screen: ${res.statusText}`);
+interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  form?: FormData;
+  /** Dispatch a global "campuscast:api-error" event so the UI can toast + resync (for fire-and-forget callers). */
+  notify?: boolean;
+  headers?: Record<string, string>;
+}
+
+async function request<T = any>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = { ...(opts.headers || {}) };
+  const token = getAuthToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let body: BodyInit | undefined;
+  if (opts.form) {
+    body = opts.form;
+  } else if (opts.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(opts.body);
   }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { method: opts.method || 'GET', headers, body });
+  } catch {
+    const err = new ApiError('Cannot reach the server. Check your network connection.', 0);
+    if (opts.notify) window.dispatchEvent(new CustomEvent('campuscast:api-error', { detail: err.message }));
+    throw err;
+  }
+
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {
+    /* non-JSON body */
+  }
+
+  if (!res.ok || (json && json.success === false)) {
+    const message = json?.error || json?.message || res.statusText || `Request failed (${res.status})`;
+    if (res.status === 401 && token) {
+      window.dispatchEvent(new CustomEvent('campuscast:unauthorized', { detail: message }));
+    } else if (opts.notify) {
+      window.dispatchEvent(new CustomEvent('campuscast:api-error', { detail: message }));
+    }
+    throw new ApiError(message, res.status);
+  }
+  return json as T;
 }
 
-export async function toggleScreenActiveApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/screens/${id}/toggle-active`, { method: 'PATCH' });
-}
+const NOTIFY = { notify: true } as const;
 
-export async function reconnectScreenApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/screens/${id}/reconnect`, { method: 'PATCH' });
-}
+/* ───────────────────────── Media URLs ───────────────────────── */
 
 export function formatMediaUrl(url?: string | null): string {
   if (!url || typeof url !== 'string') return '';
   const trimmed = url.trim();
   if (!trimmed) return '';
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('blob:') ||
-    trimmed.startsWith('data:')
-  ) {
-    return trimmed;
-  }
-  if (trimmed.startsWith('/uploads/')) {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    return `http://${host}:5000${trimmed}`;
-  }
+  if (/^(https?:|blob:|data:)/.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/uploads/')) return `${API_ORIGIN}${trimmed}`;
   return trimmed;
 }
 
-// MEDIA
+/* ───────────────────────── SCREENS ───────────────────────── */
+
+export async function getScreens(): Promise<ScreenDevice[]> {
+  return (await request('/screens')).data || [];
+}
+
+export async function createScreen(screen: ScreenDevice): Promise<void> {
+  await request('/screens', { method: 'POST', body: screen });
+}
+
+export async function updateScreenApi(screen: ScreenDevice): Promise<void> {
+  await request(`/screens/${encodeURIComponent(screen.id)}`, { method: 'PUT', body: screen });
+}
+
+export async function assignScreenPlaylistApi(screenId: string, assignedPlaylistId: string | null): Promise<void> {
+  await request(`/screens/${encodeURIComponent(screenId)}/assign-playlist`, {
+    method: 'PATCH',
+    body: { assignedPlaylistId },
+  });
+}
+
+export async function deleteScreenApi(id: string): Promise<void> {
+  await request(`/screens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function toggleScreenActiveApi(id: string): Promise<void> {
+  await request(`/screens/${encodeURIComponent(id)}/toggle-active`, { method: 'PATCH', ...NOTIFY });
+}
+
+export async function reconnectScreenApi(id: string): Promise<void> {
+  await request(`/screens/${encodeURIComponent(id)}/reconnect`, { method: 'PATCH', ...NOTIFY });
+}
+
+/* ───────────────────────── MEDIA ───────────────────────── */
+
 export async function getMedia(): Promise<MediaAsset[]> {
-  const res = await fetch(`${API_BASE}/media`);
-  const json = await res.json();
-  return json.data || [];
+  return (await request('/media')).data || [];
 }
 
 export async function uploadMediaFile(asset: MediaAsset, file?: File | null): Promise<MediaAsset> {
-  const formData = new FormData();
-  if (file) {
-    formData.append('file', file);
-  }
-  formData.append('title', asset.title);
-  formData.append('category', asset.category);
-  formData.append('type', asset.type);
-  if (asset.durationSeconds) {
-    formData.append('durationSeconds', String(asset.durationSeconds));
-  }
-  if (asset.description) {
-    formData.append('description', asset.description);
-  }
-  if (asset.aspectRatio) {
-    formData.append('aspectRatio', asset.aspectRatio);
-  }
-  if (asset.dimensions) {
-    formData.append('dimensions', asset.dimensions);
-  }
-  formData.append('uploadedBy', asset.uploadedBy || 'Vinod Kumar Jain');
-
-  const res = await fetch(`${API_BASE}/media/upload`, {
-    method: 'POST',
-    body: formData,
-  });
-  const json = await res.json();
-  if (!json.success) {
-    throw new Error(json.error || 'Upload failed');
-  }
+  const form = new FormData();
+  if (file) form.append('file', file);
+  form.append('title', asset.title);
+  form.append('category', asset.category);
+  form.append('type', asset.type);
+  if (asset.durationSeconds) form.append('durationSeconds', String(asset.durationSeconds));
+  if (asset.description) form.append('description', asset.description);
+  if (asset.aspectRatio) form.append('aspectRatio', asset.aspectRatio);
+  if (asset.dimensions) form.append('dimensions', asset.dimensions);
+  // Metadata-only sample assets (no file) reference a built-in path.
+  if (!file && asset.fileUrl) form.append('fileUrl', asset.fileUrl);
+  const json = await request('/media/upload', { method: 'POST', form });
   return json.data || asset;
 }
 
-export async function deleteMediaApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/media/${id}`, { method: 'DELETE' });
+export async function updateMediaApi(asset: Pick<MediaAsset, 'id' | 'title' | 'category' | 'description'>): Promise<void> {
+  await request(`/media/${encodeURIComponent(asset.id)}`, {
+    method: 'PUT',
+    body: { title: asset.title, category: asset.category, description: asset.description || '' },
+    ...NOTIFY,
+  });
 }
 
-// PLAYLISTS
+export async function deleteMediaApi(id: string, force = false): Promise<void> {
+  await request(`/media/${encodeURIComponent(id)}${force ? '?force=1' : ''}`, { method: 'DELETE', ...NOTIFY });
+}
+
+/* ───────────────────────── PLAYLISTS ───────────────────────── */
+
 export async function getPlaylists(): Promise<Playlist[]> {
-  const res = await fetch(`${API_BASE}/playlists`);
-  const json = await res.json();
-  return json.data || [];
+  return (await request('/playlists')).data || [];
 }
 
 export async function savePlaylistApi(playlist: Playlist): Promise<void> {
-  await fetch(`${API_BASE}/playlists`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(playlist),
-  });
+  await request('/playlists', { method: 'POST', body: playlist, ...NOTIFY });
 }
 
 export async function deletePlaylistApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/playlists/${id}`, { method: 'DELETE' });
+  await request(`/playlists/${encodeURIComponent(id)}`, { method: 'DELETE', ...NOTIFY });
 }
 
-export async function addMediaToPlaylistApi(playlistId: string, mediaId: string): Promise<void> {
-  await fetch(`${API_BASE}/playlists/${playlistId}/add-media`, {
+export async function addMediaToPlaylistApi(playlistId: string, mediaId: string, displayDurationSeconds?: number): Promise<void> {
+  await request(`/playlists/${encodeURIComponent(playlistId)}/add-media`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mediaId }),
+    body: { mediaId, displayDurationSeconds },
+    ...NOTIFY,
   });
 }
 
-// CAMPAIGNS
+/* ───────────────────────── CAMPAIGNS ───────────────────────── */
+
 export async function getCampaigns(): Promise<Campaign[]> {
-  const res = await fetch(`${API_BASE}/campaigns`);
-  const json = await res.json();
-  return json.data || [];
+  return (await request('/campaigns')).data || [];
 }
 
 export async function saveCampaignApi(campaign: Campaign): Promise<void> {
-  await fetch(`${API_BASE}/campaigns`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(campaign),
-  });
+  await request('/campaigns', { method: 'POST', body: campaign, ...NOTIFY });
 }
 
 export async function updateCampaignStatusApi(id: string, status: CampaignStatus): Promise<void> {
-  await fetch(`${API_BASE}/campaigns/${id}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  });
+  await request(`/campaigns/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { status }, ...NOTIFY });
 }
 
 export async function deleteCampaignApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/campaigns/${id}`, { method: 'DELETE' });
+  await request(`/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE', ...NOTIFY });
 }
 
-// GROUPS
+/* ───────────────────────── GROUPS ───────────────────────── */
+
 export async function getGroups(): Promise<ScreenGroup[]> {
-  const res = await fetch(`${API_BASE}/groups`);
-  const json = await res.json();
-  return json.data || [];
+  return (await request('/groups')).data || [];
 }
 
 export async function saveGroupApi(group: ScreenGroup): Promise<void> {
-  await fetch(`${API_BASE}/groups`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(group),
-  });
+  await request('/groups', { method: 'POST', body: group, ...NOTIFY });
 }
 
 export async function deleteGroupApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/groups/${id}`, { method: 'DELETE' });
+  await request(`/groups/${encodeURIComponent(id)}`, { method: 'DELETE', ...NOTIFY });
 }
 
-// PUBLISHING
+/* ───────────────────────── PUBLISHING ───────────────────────── */
+
 export async function getPublishJobs(): Promise<PublishJob[]> {
-  const res = await fetch(`${API_BASE}/publishing/jobs`);
-  const json = await res.json();
-  return json.data || [];
+  return (await request('/publishing/jobs')).data || [];
 }
 
-export async function dispatchPublishApi(campaign: Campaign, playlistName: string): Promise<void> {
-  await fetch(`${API_BASE}/publishing/dispatch`, {
+export async function dispatchPublishApi(campaign: Campaign, _playlistName: string): Promise<void> {
+  // The server resolves names / targets from the database; only the campaign id (+ optional screen override) is sent.
+  await request('/publishing/dispatch', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      campaignId: campaign.id,
-      campaignName: campaign.name,
-      playlistId: campaign.playlistId,
-      playlistName,
-      targetScreenIds: campaign.targetScreenIds,
-    }),
+    body: { campaignId: campaign.id, targetScreenIds: campaign.targetScreenIds },
+    ...NOTIFY,
   });
 }
 
-// USERS & AUTH
+/* ───────────────────────── USERS & AUTH ───────────────────────── */
+
 export async function getUsers(): Promise<UserAccount[]> {
-  const res = await fetch(`${API_BASE}/users`);
-  const json = await res.json();
-  return json.data || [];
+  return (await request('/users')).data || [];
 }
 
 export async function saveUserApi(
   user: UserAccount
 ): Promise<{ success: boolean; error?: string; data?: UserAccount }> {
-  const res = await fetch(`${API_BASE}/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(user),
-  });
-  return res.json();
+  try {
+    return await request('/users', { method: 'POST', body: user });
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Could not save user.' };
+  }
 }
 
 export async function toggleUserStatusApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/users/${id}/toggle-status`, { method: 'PATCH' });
+  await request(`/users/${encodeURIComponent(id)}/toggle-status`, { method: 'PATCH', ...NOTIFY });
 }
 
 export async function deleteUserApi(id: string): Promise<void> {
-  await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE' });
+  await request(`/users/${encodeURIComponent(id)}`, { method: 'DELETE', ...NOTIFY });
 }
 
 export async function loginApi(
   email: string,
   password: string
 ): Promise<{ success: boolean; token?: string; user?: UserAccount; error?: string }> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  return res.json();
+  try {
+    return await request('/auth/login', { method: 'POST', body: { email, password } });
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Sign-in failed.' };
+  }
 }
 
 export async function verifySessionApi(
   token: string
 ): Promise<{ success: boolean; user?: UserAccount; error?: string; status?: number }> {
-  const res = await fetch(`${API_BASE}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const json = await res.json();
-  return { ...json, status: res.status };
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json().catch(() => ({}));
+    return { ...json, success: res.ok && json.success !== false, status: res.status };
+  } catch {
+    throw new Error('Server unreachable');
+  }
 }
 
-// SETTINGS
+/* ───────────────────────── SETTINGS ───────────────────────── */
+
 export async function getSettings(): Promise<UniversitySettings | null> {
-  const res = await fetch(`${API_BASE}/settings`);
-  const json = await res.json();
-  return json.data || null;
+  try {
+    return (await request('/settings')).data || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveSettingsApi(settings: UniversitySettings): Promise<void> {
-  await fetch(`${API_BASE}/settings`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  });
+  await request('/settings', { method: 'PUT', body: settings, ...NOTIFY });
+}
+
+/* ───────────────────────── Audit / reports ───────────────────────── */
+
+export interface AuditEntry {
+  id: string;
+  actionType: string;
+  title: string;
+  detail: string;
+  actor: string;
+  timestamp: string;
+}
+
+export async function getAuditLog(limit = 100): Promise<AuditEntry[]> {
+  return (await request(`/audit?limit=${limit}`)).data || [];
 }

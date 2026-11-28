@@ -105,12 +105,12 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
       setError('Please provide a valid full name and university email address.');
       return;
     }
-    if (!editingUser && password.length < 4) {
-      setError('Please set a login password (at least 4 characters) for the new user.');
+    if (!editingUser && password.length < 8) {
+      setError('Please set a login password (at least 8 characters) for the new user.');
       return;
     }
-    if (editingUser && password.trim() && password.length < 4) {
-      setError('New password must be at least 4 characters.');
+    if (editingUser && password.trim() && password.length < 8) {
+      setError('New password must be at least 8 characters.');
       return;
     }
     if (allowedMenus.length === 0) {
