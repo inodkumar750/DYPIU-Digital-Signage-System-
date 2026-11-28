@@ -12,5 +12,8 @@
   "requiredPermissions": [
     "time.query",
     "activity.operation"
+  ],
+  "appCategory": [
+    "home"
   ]
 }
