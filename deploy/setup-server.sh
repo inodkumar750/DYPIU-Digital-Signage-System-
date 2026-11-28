@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO=""; TOKEN=""; PUBLIC_URL=""; RUNNER_NAME="nexora-$(hostname)"; APP_DIR="/opt/nexora"; RUNNER_DIR="/opt/actions-runner"
-RUNNER_USER="github-runner"; RUNNER_VERSION="2.321.0"
+RUNNER_USER="github-runner"; RUNNER_VERSION="2.338.2"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
