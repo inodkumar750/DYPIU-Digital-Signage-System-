@@ -93,21 +93,23 @@
       <h2>Set up this display</h2>
       <label for="srv">Server address</label>
       <input id="srv" type="text" placeholder="http://10.100.0.39:5000" autocomplete="off">
-      <label for="scr">Screen ID</label>
-      <input id="scr" type="text" placeholder="DYPIU-TV-022" autocomplete="off">
+      <label for="scr">Screen ID (leave empty to pair automatically)</label>
+      <input id="scr" type="text" placeholder="automatic" autocomplete="off">
       <label for="key">Device key (leave empty if not required)</label>
       <input id="key" type="text" placeholder="optional" autocomplete="off">
       <button id="save" type="button">Save &amp; connect</button>
+      <button id="repair" type="button" style="background:transparent;color:#EEE3B0;border-color:#EEE3B0;margin-top:10px">Re-pair this TV</button>
       <div class="hint">Press the YELLOW button at any time to open this screen again.</div>
     </div>
   </div>
 
   <script>
     // ─── CONFIG (set once on this TV; stored locally, nothing hard-coded) ───
+    var DEFAULT_SERVER = '__NEXORA_SERVER__'; // replaced when the IPK is built
     var LS = window.localStorage;
     function cfg() {
       return {
-        server: (LS.getItem('nexora_server') || '').replace(/\/+$/, ''),
+        server: (LS.getItem('nexora_server') || DEFAULT_SERVER).replace(/\/+$/, ''),
         screen: LS.getItem('nexora_screen') || '',
         key: LS.getItem('nexora_key') || ''
       };
@@ -116,7 +118,9 @@
 
     function playerUrl(c) {
       // The player is served by the same server (production build on :5000, or dev server on :3000).
-      var url = c.server + '/tv?kiosk=1&ticker=1&tv=' + encodeURIComponent(c.screen);
+      // No screen id stored here = the player page pairs this TV itself (shows a code to adopt in the CMS).
+      var url = c.server + '/tv?kiosk=1&ticker=1';
+      if (c.screen) url += '&tv=' + encodeURIComponent(c.screen);
       if (c.key) url += '&key=' + encodeURIComponent(c.key);
       return url;
     }
@@ -134,7 +138,7 @@
 
     function tryConnect(attempt) {
       var c = cfg();
-      if (!c.server || !c.screen) { showSetup(); return; }
+      if (!c.server) { showSetup(); return; }
       attempt = attempt || 1;
       var img = new Image();
       var done = false;
@@ -152,6 +156,12 @@
       img.onerror = function () { if (done) return; done = true; clearTimeout(timeout); fail(); };
       img.src = c.server + '/dypiu-logo.png?t=' + Date.now();
     }
+
+    $('repair').onclick = function () {
+      // Forget the screen id remembered by the player page and show a new pairing code.
+      LS.removeItem('nexora_screen'); LS.removeItem('nexora_key');
+      window.location.replace(cfg().server + '/tv?kiosk=1&ticker=1&pair=1');
+    };
 
     $('save').onclick = function () {
       var srv = $('srv').value.trim();

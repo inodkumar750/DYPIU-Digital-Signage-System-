@@ -9,6 +9,9 @@ const path = require('path');
 const zlib = require('zlib');
 
 const APP_ID  = 'in.ac.dypiu.nexora.tv';
+// Default server baked into the IPK. Override: NEXORA_SERVER=http://host:5000 npm run build:webos
+const NEXORA_SERVER = (process.env.NEXORA_SERVER || 'http://10.100.0.39:5000').replace(/\/+$/, '');
+const APP_VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, 'app', 'appinfo.json'), 'utf8')).version;
 const APP_DIR = path.join(__dirname, 'app');
 const OUT_DIR = path.join(__dirname, '..', 'public');
 const OUT_IPK = path.join(OUT_DIR, 'NEXORA-TV.ipk');
@@ -85,7 +88,12 @@ function collectFiles(dir, base) {
     if (stat.isDirectory()) {
       collectFiles(full, entry);
     } else {
-      dataEntries.push({ name: entry, data: fs.readFileSync(full) });
+      let data = fs.readFileSync(full);
+      if (fname === 'index.html') {
+        // Bake the campus server address into the app so nobody types it on the TV.
+        data = Buffer.from(data.toString('utf8').split('__NEXORA_SERVER__').join(NEXORA_SERVER), 'utf8');
+      }
+      dataEntries.push({ name: entry, data });
       console.log(`  + ${entry} (${stat.size} bytes)`);
     }
   }
@@ -99,7 +107,7 @@ collectFiles(APP_DIR, installBase);
 // ─── 4. control.tar.gz ───────────────────────────────────────────────────────
 const control =
 `Package: ${APP_ID}
-Version: 1.0.4
+Version: ${APP_VERSION}
 Section: misc
 Priority: optional
 Architecture: all

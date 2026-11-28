@@ -79,6 +79,7 @@ import { UserManagementPage } from './pages/UserManagementPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TvPlayerPage } from './pages/TvPlayerPage';
 import { LoginPage } from './pages/LoginPage';
+import { TvPairingPage } from './pages/TvPairingPage';
 
 export default function App() {
   const urlParams =
@@ -95,7 +96,28 @@ export default function App() {
       window.location.search.includes('cast') ||
       window.location.pathname.includes('player'));
   const [activeRoute, setActiveRoute] = useState<PageRoute>(isPlayerUrl ? 'player' : 'dashboard');
-  const [launchScreenId, setLaunchScreenId] = useState<string>(tvParam || 'DYPIU-TV-001');
+  // A kiosk TV remembers the screen it was paired with; with none (or ?pair=1) it shows a pairing code instead.
+  const storedScreenId = (() => {
+    try {
+      return window.localStorage.getItem('nexora_screen_id') || '';
+    } catch {
+      return '';
+    }
+  })();
+  const forcePair = urlParams?.get('pair') === '1';
+  const tvId = forcePair ? '' : tvParam || (isKioskParam ? storedScreenId : '');
+  const needsPairing = isKioskParam && !tvId;
+  const [launchScreenId, setLaunchScreenId] = useState<string>(tvId || 'DYPIU-TV-001');
+
+  useEffect(() => {
+    if (isKioskParam && tvParam) {
+      try {
+        window.localStorage.setItem('nexora_screen_id', tvParam);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [isKioskParam, tvParam]);
   const [launchKioskMode, setLaunchKioskMode] = useState<boolean>(isKioskParam);
   const [launchCastMode, setLaunchCastMode] = useState<boolean>(isCastParam);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -780,6 +802,8 @@ export default function App() {
   const currentNav = NAV_ITEMS.find((item) => item.id === activeRoute) || NAV_ITEMS[0];
   const offlineCount = screens.filter((s) => s.connectionStatus === 'Offline').length;
   const totalMediaCount = ARCHIVED_LIBRARY_OFFSET + mediaAssets.length;
+
+  if (needsPairing) return <TvPairingPage />;
 
   if (activeRoute === 'player') {
     return (
