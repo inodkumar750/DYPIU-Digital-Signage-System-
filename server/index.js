@@ -41,9 +41,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── CORS: same-host (any port) + explicit allow-list. No more "*" ──
-app.use(
-  cors({
+// ── CORS ─────────────────────────────────────────────────────────
+// TV endpoints: the webOS app page runs from file:// (Origin "null"), and these routes use device keys, not cookies.
+const deviceCors = cors({
+  origin: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-Device-Key', 'X-Screen-Id', 'If-None-Match'],
+  exposedHeaders: ['ETag'],
+});
+// Admin API: same-host (any port) + explicit allow-list. No more "*".
+const adminCors = cors({
     origin(origin, cb) {
       if (!origin) return cb(null, true); // native apps, curl, same-origin
       if (config.corsOrigins.includes(origin)) return cb(null, true);
@@ -59,8 +66,8 @@ app.use(
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Key', 'X-Screen-Id', 'If-None-Match'],
     exposedHeaders: ['ETag'],
-  })
-);
+});
+app.use((req, res, next) => (req.path.startsWith('/api/v1/device') ? deviceCors : adminCors)(req, res, next));
 
 app.use(express.json({ limit: '1mb' }));
 

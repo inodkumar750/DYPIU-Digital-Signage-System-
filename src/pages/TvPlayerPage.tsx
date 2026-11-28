@@ -124,9 +124,25 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     return showTvTicker;
   });
   const [wakeLockActive, setWakeLockActive] = useState<boolean>(false);
+  // When the page runs inside the DYPIU OS shell (webOS app), it reports to the shell and forwards remote keys.
+  const embedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === '1';
+  const tellShell = (event: string, extra: Record<string, unknown> = {}) => {
+    if (embedded) window.parent.postMessage({ type: 'dypiu-os', event, ...extra }, '*');
+  };
   // Remote control from the Control Center (delivered in the heartbeat response).
   const [remoteMessage, setRemoteMessage] = useState<{ text: string; urgent: boolean } | null>(null);
   const [identifying, setIdentifying] = useState(false);
+
+  useEffect(() => {
+    if (!embedded) return;
+    window.parent.postMessage({ type: 'dypiu-os', event: 'ready', screenId: selectedScreenId }, '*');
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.repeat) window.parent.postMessage({ type: 'dypiu-os', event: 'key', code: e.keyCode }, '*');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [embedded, selectedScreenId]);
+
   const pendingAcksRef = useRef<number[]>([]);
   const remoteTimersRef = useRef<{ msg?: number; ident?: number }>({});
   const [castHint, setCastHint] = useState<string>('');
@@ -310,6 +326,13 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
     () => currentScreens.find((s) => s.id === selectedScreenId) || currentScreens[0],
     [currentScreens, selectedScreenId]
   );
+
+  useEffect(() => {
+    if (embedded && activeScreen?.name) {
+      window.parent.postMessage({ type: 'dypiu-os', event: 'ready', screenId: activeScreen.id, screenName: activeScreen.name }, '*');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, activeScreen?.id, activeScreen?.name]);
 
   // Scheduled Campaign override: if an Active/Scheduled campaign is inside its date + daily time window for this screen, play its playlist
   const activeCampaign = useMemo(
@@ -574,10 +597,12 @@ export const TvPlayerPage: React.FC<TvPlayerPageProps> = ({
           return;
         }
         if (c.command === 'identify') {
+          tellShell('attention');
           setIdentifying(true);
           window.clearTimeout(remoteTimersRef.current.ident);
           remoteTimersRef.current.ident = window.setTimeout(() => setIdentifying(false), remaining || 15000);
         } else if (c.command === 'message') {
+          tellShell('attention');
           setRemoteMessage({ text: p.text || '', urgent: p.style === 'urgent' });
           window.clearTimeout(remoteTimersRef.current.msg);
           remoteTimersRef.current.msg = window.setTimeout(() => setRemoteMessage(null), remaining || 60000);

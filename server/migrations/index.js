@@ -101,6 +101,16 @@ const MIGRATIONS = [
       await addColumn(conn, 'pairing_requests', 'user_agent', 'VARCHAR(255) NULL');
     },
   },
+  {
+    id: '006_dypiu_os_config',
+    async up(conn) {
+      await conn.query(`CREATE TABLE IF NOT EXISTS \`os_config\` (
+        \`id\` TINYINT NOT NULL PRIMARY KEY,
+        \`config\` MEDIUMTEXT NOT NULL,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 export async function runMigrations() {

@@ -11,6 +11,8 @@ export const TvPairingPage: React.FC = () => {
   useEffect(() => {
     let stopped = false;
     let timer: number | undefined;
+    const embedded = new URLSearchParams(window.location.search).get('embedded') === '1';
+    if (embedded) window.parent.postMessage({ type: 'dypiu-os', event: 'pairing' }, '*');
 
     const start = async () => {
       try {
@@ -44,7 +46,7 @@ export const TvPairingPage: React.FC = () => {
               /* storage unavailable: the URL below still carries the id */
             }
             const key = json.deviceKey ? `&key=${encodeURIComponent(json.deviceKey)}` : '';
-            window.location.replace(`/tv?kiosk=1&ticker=1&tv=${encodeURIComponent(json.screenId)}${key}`);
+            window.location.replace(`/tv?kiosk=1&ticker=1${embedded ? '&embedded=1' : ''}&tv=${encodeURIComponent(json.screenId)}${key}`);
             return;
           }
           if (json.state === 'expired') {

@@ -3,183 +3,346 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NEXORA TV — DYPIU Digital Signage</title>
+  <title>DYPIU OS</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body {
-      width: 100vw; height: 100vh;
-      overflow: hidden;
-      background: #0F051D;
-    }
-    .splash {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      color: #fff;
-      gap: 20px;
-    }
-    .logo-wrap {
-      width: 140px; height: 140px;
-      background: #fff;
-      border-radius: 20px;
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 8px 40px rgba(80,0,113,0.6);
-    }
-    .logo-wrap img { width: 120px; height: 120px; object-fit: contain; }
-    h1 {
-      font-size: 52px;
-      font-weight: 800;
-      color: #EEE3B0;
-      letter-spacing: 4px;
-      text-transform: uppercase;
-    }
-    .subtitle {
-      font-size: 18px;
-      color: rgba(255,255,255,0.55);
-      letter-spacing: 1px;
-    }
-    .dots { display: flex; gap: 8px; margin-top: 10px; }
-    .dot {
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      background: #500071;
-      animation: pulse 1.2s infinite ease-in-out;
-    }
-    .dot:nth-child(2) { animation-delay: 0.2s; background: #8A2A78; }
-    .dot:nth-child(3) { animation-delay: 0.4s; background: #EEE3B0; }
-    @keyframes pulse {
-      0%, 100% { transform: scale(0.6); opacity: 0.4; }
-      50% { transform: scale(1); opacity: 1; }
-    }
-    .error-box {
-      display: none;
-      background: rgba(255,60,60,0.15);
-      border: 1px solid rgba(255,60,60,0.4);
-      border-radius: 12px;
-      padding: 16px 28px;
-      font-size: 15px;
-      color: #ffaaaa;
-      text-align: center;
-      max-width: 500px;
-    }
+    html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0F051D; color: #fff;
+      font-family: 'LG Smart UI', 'Segoe UI', Arial, sans-serif; }
+    body { background: radial-gradient(ellipse at 20% 0%, #3d0a5c 0%, #1a0830 45%, #0F051D 100%); }
 
-    .setup { display:none; width:min(640px,90vw); background:rgba(255,255,255,0.06); border:1px solid rgba(238,227,176,0.25); border-radius:16px; padding:24px 28px; }
-    .setup label { display:block; font-size:14px; color:rgba(255,255,255,0.7); margin:12px 0 4px; }
-    .setup input { width:100%; padding:12px 14px; font-size:18px; border-radius:8px; border:2px solid #500071; background:#1a0830; color:#fff; }
-    .setup input:focus, .setup button:focus { outline: none; border-color: #EEE3B0; box-shadow: 0 0 0 3px rgba(238,227,176,0.35); }
-    .setup button { margin-top:20px; width:100%; padding:14px; font-size:20px; font-weight:700; color:#290044; background:#EEE3B0; border:2px solid transparent; border-radius:10px; cursor:pointer; }
-    .setup .hint { margin-top:14px; font-size:13px; color:rgba(255,255,255,0.5); text-align:center; }
-    .setup h2 { font-size:22px; color:#EEE3B0; margin-bottom:4px; }
+    /* ── Signage player (NEXORA) lives underneath the home screen ── */
+    #player { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; border: 0; background: #000; visibility: hidden; }
+    body.signage #player { visibility: visible; }
+    body.signage #home { display: none; }
+
+    /* ── Home ── */
+    #home { position: fixed; top: 0; left: 0; right: 0; bottom: 0; padding: 48px 72px; display: flex; flex-direction: column; }
+    .top { display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; gap: 22px; }
+    .logo { width: 92px; height: 92px; background: #fff; border-radius: 22px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 40px rgba(138,42,120,.55); }
+    .logo img { width: 78px; height: 78px; object-fit: contain; }
+    .brand h1 { font-size: 46px; font-weight: 800; letter-spacing: 3px; color: #EEE3B0; }
+    .brand p { font-size: 20px; color: rgba(255,255,255,.6); margin-top: 4px; }
+    .clock { text-align: right; }
+    .clock .time { font-size: 64px; font-weight: 300; letter-spacing: 2px; }
+    .clock .date { font-size: 20px; color: rgba(255,255,255,.65); margin-top: 2px; }
+    .status { margin-top: 8px; font-size: 16px; color: rgba(255,255,255,.55); display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; background: #666; }
+    .dot.on { background: #34d399; box-shadow: 0 0 10px #34d399; }
+
+    .main { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 28px; }
+    .tiles { display: flex; flex-wrap: wrap; gap: 26px; align-items: stretch; }
+    .tile { width: 210px; height: 210px; border-radius: 30px; background: rgba(255,255,255,.08);
+      border: 2px solid rgba(255,255,255,.12); display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 16px; color: #fff; font-size: 22px; font-weight: 600; cursor: pointer;
+      transition: transform .12s ease, border-color .12s ease, background .12s ease; }
+    .tile svg { width: 76px; height: 76px; stroke: #EEE3B0; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .tile.focus { transform: scale(1.09); border-color: #EEE3B0; background: rgba(238,227,176,.18); box-shadow: 0 14px 50px rgba(0,0,0,.5); }
+    .tile.primary { width: 440px; background: linear-gradient(135deg, #500071, #8A2A78); border-color: rgba(238,227,176,.45); flex-direction: row; gap: 26px; }
+    .tile.primary img { width: 96px; height: 96px; background: #fff; border-radius: 22px; padding: 8px; object-fit: contain; }
+    .tile.primary .t1 { font-size: 36px; font-weight: 800; letter-spacing: 2px; }
+    .tile.primary .t2 { font-size: 18px; font-weight: 400; color: rgba(255,255,255,.75); margin-top: 6px; }
+    .banner { min-height: 34px; font-size: 22px; color: #EEE3B0; }
+    .foot { display: flex; justify-content: space-between; align-items: center; font-size: 16px; color: rgba(255,255,255,.45); }
+
+    /* ── Staff overlay ── */
+    #overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(8,2,16,.88); display: none; align-items: center; justify-content: center; z-index: 10; }
+    #overlay.show { display: flex; }
+    .card { width: 640px; background: #1a0830; border: 2px solid rgba(238,227,176,.35); border-radius: 26px; padding: 34px 40px; }
+    .card h2 { font-size: 30px; color: #EEE3B0; margin-bottom: 8px; }
+    .card .sub { font-size: 17px; color: rgba(255,255,255,.6); margin-bottom: 20px; }
+    .pin { font-size: 52px; letter-spacing: 18px; text-align: center; min-height: 72px; font-family: monospace; }
+    .err { color: #ff9a9a; text-align: center; min-height: 26px; font-size: 18px; }
+    .btn { display: block; width: 100%; margin-top: 12px; padding: 16px 20px; font-size: 22px; font-weight: 600; text-align: left;
+      color: #fff; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.12); border-radius: 14px; cursor: pointer; }
+    .btn.focus { border-color: #EEE3B0; background: rgba(238,227,176,.18); }
+    .card input { width: 100%; padding: 14px; font-size: 22px; border-radius: 10px; border: 2px solid #500071; background: #0F051D; color: #fff; margin-top: 8px; }
+    .about { font-size: 15px; color: rgba(255,255,255,.5); margin-top: 18px; line-height: 1.6; }
   </style>
 </head>
 <body>
-  <div class="splash" id="splash">
-    <div class="logo-wrap">
-      <img src="largeIcon.png" alt="DYPIU Logo">
-    </div>
-    <h1>NEXORA TV</h1>
-    <div class="subtitle">D.Y. Patil International University</div>
-    <div class="dots">
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
-    </div>
-    <div class="error-box" id="errBox"></div>
+  <iframe id="player" allow="autoplay; fullscreen"></iframe>
 
-    <div class="setup" id="setup">
-      <h2>Set up this display</h2>
-      <label for="srv">Server address</label>
-      <input id="srv" type="text" placeholder="http://10.100.0.39:5000" autocomplete="off">
-      <label for="scr">Screen ID (leave empty to pair automatically)</label>
-      <input id="scr" type="text" placeholder="automatic" autocomplete="off">
-      <label for="key">Device key (leave empty if not required)</label>
-      <input id="key" type="text" placeholder="optional" autocomplete="off">
-      <button id="save" type="button">Save &amp; connect</button>
-      <button id="repair" type="button" style="background:transparent;color:#EEE3B0;border-color:#EEE3B0;margin-top:10px">Re-pair this TV</button>
-      <div class="hint">Press the YELLOW button at any time to open this screen again.</div>
+  <div id="home">
+    <div class="top">
+      <div class="brand">
+        <div class="logo"><img src="largeIcon.png" alt="DYPIU"></div>
+        <div><h1 id="brandName">DYPIU OS</h1><p id="brandTag">D. Y. Patil International University</p></div>
+      </div>
+      <div class="clock">
+        <div class="time" id="time">--:--</div>
+        <div class="date" id="date"></div>
+        <div class="status"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="banner" id="banner"></div>
+      <div class="tiles" id="tiles"></div>
+    </div>
+    <div class="foot">
+      <span>Use the arrow keys and OK &nbsp;·&nbsp; YELLOW button: staff menu</span>
+      <span id="ver">DYPIU OS 1.1</span>
     </div>
   </div>
 
-  <script>
-    // ─── CONFIG (set once on this TV; stored locally, nothing hard-coded) ───
-    var DEFAULT_SERVER = '__NEXORA_SERVER__'; // replaced when the IPK is built
-    var LS = window.localStorage;
-    function cfg() {
-      return {
-        server: (LS.getItem('nexora_server') || DEFAULT_SERVER).replace(/\/+$/, ''),
-        screen: LS.getItem('nexora_screen') || '',
-        key: LS.getItem('nexora_key') || ''
-      };
-    }
-    function $(id) { return document.getElementById(id); }
+  <div id="overlay"><div class="card" id="card"></div></div>
 
-    function playerUrl(c) {
-      // The player is served by the same server (production build on :5000, or dev server on :3000).
-      // No screen id stored here = the player page pairs this TV itself (shows a code to adopt in the CMS).
-      var url = c.server + '/tv?kiosk=1&ticker=1';
-      if (c.screen) url += '&tv=' + encodeURIComponent(c.screen);
-      if (c.key) url += '&key=' + encodeURIComponent(c.key);
+  <script>
+    // ─── DYPIU OS shell ────────────────────────────────────────────────────────
+    var DEFAULT_SERVER = '__NEXORA_SERVER__'; // replaced when the IPK is built
+    var OS_VERSION = '1.1';
+    var LS = window.localStorage;
+    function $(id) { return document.getElementById(id); }
+    function server() { return (LS.getItem('nexora_server') || DEFAULT_SERVER).replace(/\/+$/, ''); }
+
+    // Built-in defaults: the home screen still works when the server cannot be reached.
+    var cfg = {
+      brand: { name: 'DYPIU OS', tagline: 'D. Y. Patil International University' },
+      bootSeconds: 10, idleSeconds: 120,
+      apps: [
+        { id: 'youtube.leanback.v4', label: 'YouTube', icon: 'play' },
+        { id: 'com.webos.app.browser', label: 'Web Browser', icon: 'globe' },
+        { id: 'com.webos.app.hdmi1', label: 'HDMI 1', icon: 'hdmi' },
+        { id: 'com.webos.app.hdmi2', label: 'HDMI 2', icon: 'hdmi' },
+        { id: 'com.webos.app.livetv', label: 'Live TV', icon: 'tv' },
+        { id: 'com.palm.app.settings', label: 'TV Settings', icon: 'gear' }
+      ]
+    };
+
+    var ICONS = {
+      play: '<rect x="3" y="5" width="18" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/>',
+      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+      hdmi: '<path d="M4 8h16v6l-3 4H7l-3-4z"/><path d="M8 11h8"/>',
+      tv: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+      cast: '<path d="M4 18a3 3 0 013 3M4 14a7 7 0 017 7M4 10a11 11 0 0111 11"/><path d="M4 6h16v13h-5"/>',
+      photo: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 18l5-5 4 4 3-3 4 4"/>',
+      film: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6l-2 4M13 6l-2 4M18 6l-2 4"/>',
+      gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
+      app: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>'
+    };
+
+    // ── State ──
+    var view = 'home';            // 'home' | 'signage'
+    var pairing = false;          // the signage page is showing a pairing code
+    var paired = LS.getItem('dypiu_paired') === '1';
+    var screenName = LS.getItem('dypiu_screen_name') || '';
+    var overlayMode = '';         // '' | 'pin' | 'staff' | 'form'
+    var focusIdx = 0, tileEls = [];
+    var bootLeft = 0, bootTimer = null, idleTimer = null;
+
+    // ── Luna (system service) bridge ──
+    function luna(uri, params, cb) {
+      if (typeof PalmServiceBridge === 'undefined') { if (cb) cb({ returnValue: false, errorText: 'not on a TV' }); return; }
+      var b = new PalmServiceBridge();
+      b.onservicecallback = function (m) { var j = {}; try { j = JSON.parse(m); } catch (e) {} if (cb) cb(j); };
+      b.call(uri, JSON.stringify(params || {}));
+    }
+    function launchApp(id) { luna('luna://com.webos.applicationManager/launch', { id: id }); }
+
+    // ── Rendering ──
+    function renderBrand() { $('brandName').textContent = cfg.brand.name; $('brandTag').textContent = cfg.brand.tagline; }
+    function renderTiles() {
+      var box = $('tiles'); box.innerHTML = ''; tileEls = [];
+      var first = document.createElement('div');
+      first.className = 'tile primary'; first.tabIndex = -1;
+      first.innerHTML = '<img src="largeIcon.png" alt=""><div><div class="t1">NEXORA</div><div class="t2">Campus digital signage</div></div>';
+      first.onclick = function () { showSignage(); };
+      box.appendChild(first); tileEls.push(first);
+      cfg.apps.forEach(function (a) {
+        var t = document.createElement('div');
+        t.className = 'tile'; t.tabIndex = -1;
+        t.innerHTML = '<svg viewBox="0 0 24 24">' + (ICONS[a.icon] || ICONS.app) + '</svg><div>' + String(a.label).replace(/</g, '&lt;') + '</div>';
+        t.onclick = function () { launchApp(a.id); };
+        box.appendChild(t); tileEls.push(t);
+      });
+      tileEls.forEach(function (t, i) { t.onmouseenter = function () { setFocus(i); }; });
+      setFocus(Math.min(focusIdx, tileEls.length - 1));
+    }
+    function setFocus(i) {
+      focusIdx = i;
+      tileEls.forEach(function (t, k) { t.className = t.className.replace(' focus', '') + (k === i ? ' focus' : ''); });
+    }
+    function tickClock() {
+      var d = new Date();
+      var h = d.getHours(), m = d.getMinutes();
+      $('time').textContent = (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+      var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], mons = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      $('date').textContent = days[d.getDay()] + ', ' + d.getDate() + ' ' + mons[d.getMonth()] + ' ' + d.getFullYear();
+    }
+    function setStatus(ok) {
+      $('dot').className = 'dot' + (ok ? ' on' : '');
+      $('statusText').textContent = ok ? (screenName ? screenName + ' · connected' : 'Connected to NEXORA') : 'Server not reachable';
+    }
+
+    // ── Views ──
+    function playerSrc() {
+      var url = server() + '/tv?kiosk=1&ticker=1&embedded=1';
+      var s = LS.getItem('nexora_screen'), k = LS.getItem('nexora_key');
+      if (s) url += '&tv=' + encodeURIComponent(s);
+      if (k) url += '&key=' + encodeURIComponent(k);
       return url;
     }
-
-    function showError(msg) { var b = $('errBox'); b.style.display = 'block'; b.textContent = msg; }
-
-    var retryTimer = null;
-    function showSetup() {
-      clearTimeout(retryTimer);
-      var c = cfg();
-      $('srv').value = c.server; $('scr').value = c.screen; $('key').value = c.key;
-      $('setup').style.display = 'block';
-      $('srv').focus();
+    function showSignage() {
+      clearTimeout(idleTimer); stopBoot();
+      view = 'signage'; document.body.className = 'signage';
+      try { $('player').contentWindow.focus(); } catch (e) {}
+    }
+    function showHome() {
+      view = 'home'; document.body.className = '';
+      try { $('player').blur(); } catch (e) {}
+      window.focus(); armIdle();
+    }
+    function armIdle() {
+      clearTimeout(idleTimer);
+      if (view !== 'home' || overlayMode) return;
+      idleTimer = setTimeout(showSignage, cfg.idleSeconds * 1000);
+    }
+    function stopBoot() { clearInterval(bootTimer); bootTimer = null; $('banner').textContent = ''; }
+    function startBoot() {
+      bootLeft = cfg.bootSeconds;
+      if (bootLeft <= 0) { showSignage(); return; }
+      var draw = function () { $('banner').textContent = 'NEXORA signage starts in ' + bootLeft + ' s — press any key to stay on the home screen'; };
+      draw();
+      bootTimer = setInterval(function () { bootLeft--; if (bootLeft <= 0) { showSignage(); } else { draw(); } }, 1000);
     }
 
-    function tryConnect(attempt) {
-      var c = cfg();
-      if (!c.server) { showSetup(); return; }
-      attempt = attempt || 1;
-      var img = new Image();
-      var done = false;
-      var timeout = setTimeout(function () { if (!done) { done = true; fail(); } }, 6000);
-      function fail() {
-        if (attempt < 5) {
-          showError('Connecting to NEXORA server... (attempt ' + attempt + '/5)');
-          retryTimer = setTimeout(function () { tryConnect(attempt + 1); }, 3000);
-        } else {
-          showError('Cannot reach ' + c.server + '. Check Wi-Fi / server address (press YELLOW to edit). Retrying in 10 seconds...');
-          retryTimer = setTimeout(function () { tryConnect(1); }, 10000);
-        }
+    // ── Staff overlay (PIN → menu) ──
+    var pinBuf = '', staffEls = [], staffIdx = 0;
+    function closeOverlay() {
+      overlayMode = ''; $('overlay').className = '';
+      if (view === 'home') armIdle(); else { try { $('player').contentWindow.focus(); } catch (e) {} }
+    }
+    function openPin() {
+      clearTimeout(idleTimer); stopBoot();
+      overlayMode = 'pin'; pinBuf = ''; $('overlay').className = 'show';
+      drawPin('');
+    }
+    function drawPin(err) {
+      $('card').innerHTML = '<h2>Staff access</h2><div class="sub">Enter the staff PIN with the number keys, then press OK. BACK cancels.</div>' +
+        '<div class="pin">' + new Array(pinBuf.length + 1).join('•') + '</div><div class="err">' + (err || '') + '</div>';
+    }
+    function checkPin() {
+      var x = new XMLHttpRequest();
+      x.open('POST', server() + '/api/v1/device/staff-pin', true);
+      x.setRequestHeader('Content-Type', 'application/json');
+      x.onreadystatechange = function () {
+        if (x.readyState !== 4) return;
+        var ok = false; try { ok = JSON.parse(x.responseText).ok === true; } catch (e) {}
+        if (ok) openStaff();
+        else { pinBuf = ''; drawPin(x.status === 429 ? 'Too many attempts — wait a minute' : (x.status === 0 ? 'Server not reachable' : 'Wrong PIN')); }
+      };
+      x.send(JSON.stringify({ pin: pinBuf }));
+    }
+    function openStaff() {
+      overlayMode = 'staff'; staffIdx = 0;
+      var items = [
+        ['Show NEXORA signage now', function () { closeOverlay(); showSignage(); }],
+        ['Re-pair this TV (new pairing code)', function () {
+          LS.removeItem('nexora_screen'); LS.removeItem('nexora_key'); LS.setItem('dypiu_paired', '0'); paired = false; screenName = '';
+          $('player').src = server() + '/tv?kiosk=1&ticker=1&embedded=1&pair=1'; closeOverlay(); showSignage(); }],
+        ['Change server address', function () { drawServerForm(); }],
+        ['Restart DYPIU OS', function () { window.location.reload(); }],
+        ['Exit to LG home screen', function () { launchApp('com.webos.app.home'); }],
+        ['Close', function () { closeOverlay(); }]
+      ];
+      var html = '<h2>Staff menu</h2><div class="sub">DYPIU OS ' + OS_VERSION + '</div>';
+      items.forEach(function (it, i) { html += '<div class="btn" data-i="' + i + '">' + it[0] + '</div>'; });
+      html += '<div class="about">Server: ' + server() + '<br>Screen: ' + (LS.getItem('nexora_screen') || screenName || 'not paired yet') + '</div>';
+      $('card').innerHTML = html;
+      staffEls = Array.prototype.slice.call($('card').querySelectorAll('.btn'));
+      staffEls.forEach(function (el, i) { el.onclick = items[i][1]; el.onmouseenter = function () { setStaffFocus(i); }; });
+      setStaffFocus(0);
+    }
+    function setStaffFocus(i) { staffIdx = i; staffEls.forEach(function (e, k) { e.className = 'btn' + (k === i ? ' focus' : ''); }); }
+    function drawServerForm() {
+      overlayMode = 'form';
+      $('card').innerHTML = '<h2>Server address</h2><div class="sub">Example: http://10.100.0.39:5000</div>' +
+        '<input id="srvIn" type="text" value="' + server() + '"><div class="btn focus" id="srvSave">Save and restart</div><div class="btn" id="srvCancel">Cancel</div>';
+      $('srvSave').onclick = function () {
+        var v = $('srvIn').value.trim(); if (v && !/^https?:\/\//i.test(v)) v = 'http://' + v;
+        LS.setItem('nexora_server', v.replace(/\/+$/, '')); window.location.reload();
+      };
+      $('srvCancel').onclick = function () { openStaff(); };
+      $('srvIn').focus();
+    }
+
+    // ── Keys (remote control) ──
+    var BACK = [461, 27, 8, 10009];
+    function onKey(code) {
+      if (code === 405) { if (!overlayMode) openPin(); return true; }       // YELLOW
+      if (overlayMode === 'pin') {
+        if (code >= 48 && code <= 57 && pinBuf.length < 8) { pinBuf += String(code - 48); drawPin(''); }
+        else if (code === 13 && pinBuf.length >= 4) checkPin();
+        else if (BACK.indexOf(code) >= 0) closeOverlay();
+        return true;
       }
-      img.onload = function () { if (done) return; done = true; clearTimeout(timeout); window.location.replace(playerUrl(c)); };
-      img.onerror = function () { if (done) return; done = true; clearTimeout(timeout); fail(); };
-      img.src = c.server + '/dypiu-logo.png?t=' + Date.now();
+      if (overlayMode === 'staff') {
+        if (code === 38 || code === 37) setStaffFocus(Math.max(0, staffIdx - 1));
+        else if (code === 40 || code === 39) setStaffFocus(Math.min(staffEls.length - 1, staffIdx + 1));
+        else if (code === 13) staffEls[staffIdx].click();
+        else if (BACK.indexOf(code) >= 0) closeOverlay();
+        return true;
+      }
+      if (overlayMode === 'form') { if (BACK.indexOf(code) >= 0 && document.activeElement && document.activeElement.id !== 'srvIn') openStaff(); return false; }
+      // home screen
+      stopBoot(); armIdle();
+      var cols = Math.max(1, Math.floor((window.innerWidth - 144) / 236));
+      if (code === 39) setFocus(Math.min(tileEls.length - 1, focusIdx + 1));
+      else if (code === 37) setFocus(Math.max(0, focusIdx - 1));
+      else if (code === 40) setFocus(Math.min(tileEls.length - 1, focusIdx + Math.max(1, cols - 1)));
+      else if (code === 38) setFocus(Math.max(0, focusIdx - Math.max(1, cols - 1)));
+      else if (code === 13) tileEls[focusIdx].click();
+      return true; // never let BACK close DYPIU OS
     }
-
-    $('repair').onclick = function () {
-      // Forget the screen id remembered by the player page and show a new pairing code.
-      LS.removeItem('nexora_screen'); LS.removeItem('nexora_key');
-      window.location.replace(cfg().server + '/tv?kiosk=1&ticker=1&pair=1');
-    };
-
-    $('save').onclick = function () {
-      var srv = $('srv').value.trim();
-      if (srv && !/^https?:\/\//i.test(srv)) srv = 'http://' + srv;
-      LS.setItem('nexora_server', srv);
-      LS.setItem('nexora_screen', $('scr').value.trim());
-      LS.setItem('nexora_key', $('key').value.trim());
-      $('setup').style.display = 'none';
-      $('errBox').style.display = 'none';
-      tryConnect(1);
-    };
-
-    // YELLOW (405) or "S" opens the settings form
     document.addEventListener('keydown', function (e) {
-      if (e.keyCode === 405 || e.keyCode === 83) showSetup();
+      if (view === 'signage' && !overlayMode) return;
+      if (onKey(e.keyCode)) e.preventDefault();
+    });
+    document.addEventListener('mousemove', function () { if (view === 'home' && !overlayMode) { stopBoot(); armIdle(); } });
+
+    // ── Messages from the signage page ──
+    window.addEventListener('message', function (e) {
+      var m = e.data; if (!m || m.type !== 'dypiu-os') return;
+      if (m.event === 'ready') {
+        pairing = false; paired = true; LS.setItem('dypiu_paired', '1');
+        if (m.screenName) { screenName = m.screenName; LS.setItem('dypiu_screen_name', screenName); }
+        setStatus(true);
+      } else if (m.event === 'pairing') {
+        pairing = true; paired = false; LS.setItem('dypiu_paired', '0'); showSignage();
+      } else if (m.event === 'attention') {
+        if (view !== 'signage') showSignage();             // identify / urgent message from the Control Center
+      } else if (m.event === 'key') {
+        if (m.code === 405) { openPin(); return; }
+        if (pairing || overlayMode) return;                // the pairing code stays on screen
+        if (view === 'signage') showHome();                // any key brings the home screen back
+      }
     });
 
-    setTimeout(function () { tryConnect(1); }, 1500);
+    // ── Config from the server (optional: built-in defaults work offline) ──
+    function loadConfig() {
+      var x = new XMLHttpRequest();
+      x.open('GET', server() + '/api/v1/device/os-config?platform=webos', true);
+      x.timeout = 8000;
+      x.onreadystatechange = function () {
+        if (x.readyState !== 4) return;
+        if (x.status === 200) {
+          try {
+            var c = JSON.parse(x.responseText).config;
+            if (c && c.apps) { cfg = c; renderBrand(); renderTiles(); }
+            setStatus(true);
+          } catch (e) { setStatus(false); }
+        } else setStatus(false);
+      };
+      x.send();
+    }
+
+    // ── Start ──
+    renderBrand(); renderTiles(); tickClock(); setInterval(tickClock, 10000);
+    setStatus(false);
+    $('player').src = playerSrc();                 // signage starts loading in the background right away
+    loadConfig(); setInterval(loadConfig, 600000);
+    if (!paired) { showSignage(); }                // a new TV goes straight to the pairing code
+    else { showHome(); startBoot(); }
   </script>
 </body>
 </html>

@@ -14,6 +14,7 @@ import { rateLimitMiddleware } from '../utils/rateLimit.js';
 import { pairingStatus, startPairing } from '../services/pairing.js';
 import { ackCommands, takePending } from '../services/commands.js';
 import { cleanIp } from '../utils/commands.js';
+import { getOsConfig, publicOsConfig } from '../services/osConfig.js';
 import { getSettings, listCampaigns, listGroups, listMedia, listPlaylists, listScreens } from '../services/serializers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,6 +76,29 @@ router.get(
   pairLimiter,
   asyncHandler(async (req, res) => {
     res.json({ success: true, ...(await pairingStatus(String(req.params.code).toUpperCase().slice(0, 10))) });
+  })
+);
+
+/* ───────────────────────── DYPIU OS (home screen settings) ───────────────────────── */
+
+router.get(
+  '/os-config',
+  asyncHandler(async (req, res) => {
+    const platform = req.query.platform === 'android' ? 'android' : 'webos';
+    res.json({ success: true, config: publicOsConfig(await getOsConfig(), platform) });
+  })
+);
+
+const pinLimiter = rateLimitMiddleware({ windowMs: 60_000, max: 8 });
+/** Staff menu on the TV: the PIN is checked here so it never has to be stored on the device. */
+router.post(
+  '/staff-pin',
+  pinLimiter,
+  asyncHandler(async (req, res) => {
+    const cfg = await getOsConfig();
+    const given = String(req.body?.pin || '');
+    const ok = given.length === cfg.staffPin.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(cfg.staffPin));
+    res.json({ success: true, ok });
   })
 );
 

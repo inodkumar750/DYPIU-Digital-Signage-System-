@@ -6,6 +6,7 @@ import { buildCommand, normalizeTargets, PLAYER_COMMANDS } from '../utils/comman
 import { enqueueCommand, recentCommands, recordDone } from '../services/commands.js';
 import { listPendingPairings } from '../services/pairing.js';
 import { logActivity } from '../services/audit.js';
+import { getOsConfig, saveOsConfig } from '../services/osConfig.js';
 
 const router = Router();
 const canControl = requireMenu('control');
@@ -71,6 +72,25 @@ router.post(
       unknown,
       message: queued === 0 ? 'No matching screens.' : `${command.replace('_', ' ')} sent to ${queued} screen${queued === 1 ? '' : 's'}.`,
     });
+  })
+);
+
+/** DYPIU OS settings (apps on the TV home screen, idle timings, staff PIN). */
+router.get(
+  '/os-config',
+  canControl,
+  asyncHandler(async (req, res) => {
+    res.json({ success: true, data: await getOsConfig() });
+  })
+);
+
+router.put(
+  '/os-config',
+  canControl,
+  asyncHandler(async (req, res) => {
+    const data = await saveOsConfig(req.body || {});
+    await logActivity('control', 'DYPIU OS settings updated', '', req.user?.name || 'admin');
+    res.json({ success: true, data });
   })
 );
 
