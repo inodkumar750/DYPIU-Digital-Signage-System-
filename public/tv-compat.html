@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>CampusCast Compat TV &amp; Standy Player</title>
+  <meta name="viewport" content="width=1920, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="screen-orientation" content="landscape" />
+  <title>NEXORA TV — DYPIU Digital Signage</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -147,8 +148,8 @@
         <video id="vidPlayer" muted playsinline autoplay></video>
       </div>
       <div id="statusScreen">
-        <div id="statusTitle">Connecting to CampusCast...</div>
-        <div id="statusMsg">Loading display schedule...</div>
+        <div id="statusTitle">Connecting to NEXORA...</div>
+        <div id="statusMsg">Loading DYPIU Digital Signage schedule...</div>
       </div>
       <div id="qrOverlay">
         <img id="qrImg" alt="Campaign QR Code" />
@@ -163,7 +164,7 @@
           <div id="scrSub" class="scrSub">Campus Display</div>
         </div>
       </div>
-      <div id="tickerText">CampusCast Digital Signage Network</div>
+      <div id="tickerText">NEXORA — DYPIU Digital Signage Network</div>
       <div id="clockBox">
         <div id="clockTime">--:--</div>
         <div id="clockDate"></div>
@@ -333,7 +334,7 @@
         httpGetJson(apiBase + '/device/' + encodeURIComponent(screenId) + '/manifest', function (err, data) {
           if (err || !data || !data.success) {
             if (slides.length === 0) {
-              showStatus('Waiting for CampusCast Server...', 'Cannot reach ' + apiBase + ' for screen "' + screenId + '". Retrying...');
+              showStatus('Waiting for NEXORA Server...', 'Cannot reach ' + apiBase + ' for screen "' + screenId + '". Make sure laptop server is running. Retrying...');
             }
             return;
           }

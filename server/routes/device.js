@@ -9,12 +9,12 @@ const router = Router();
  * GET /api/v1/device/app-version
  */
 router.get('/app-version', (req, res) => {
-  const host = req.protocol + '://' + req.get('host');
+  const host = req.protocol + '://' + (req.headers['x-forwarded-host'] || req.get('host') || 'localhost:5000');
   res.json({
     success: true,
     versionCode: 5,
     versionName: '1.0.4',
-    apkUrl: `${host}/CampusCast-TV.apk`,
+    apkUrl: `${host}/NEXORA-TV.apk`,
   });
 });
 
@@ -137,24 +137,50 @@ router.get('/:screenId/manifest', async (req, res) => {
       [playlistId]
     );
 
-    const host = req.protocol + '://' + req.get('host');
+    // Use real network host (not localhost) so TV/LG webOS browser can reach image URLs
+    const rawHost = req.get('host') || 'localhost:5000';
+    // Replace 'localhost' with the actual server IP from the incoming request socket
+    const serverIp = req.socket?.localAddress?.replace('::ffff:', '') || '127.0.0.1';
+    const networkHost = req.protocol + '://' + (rawHost.startsWith('localhost') ? `${serverIp}:5000` : rawHost);
 
     const slides = items.map((it) => ({
       slideId: it.item_id,
       mediaId: it.media_id,
       title: it.title,
-      type: it.type, // 'Image' or 'Video'
+      type: it.type,
       order: it.order_index,
       durationSeconds: it.type === 'Video' ? (it.duration_seconds || 30) : it.display_duration_seconds,
       muteAudio: Boolean(it.mute_audio),
       loopVideo: Boolean(it.loop_video),
-      // Full download URL for Android TV caching engine
-      downloadUrl: it.file_url?.startsWith('http') ? it.file_url : `${host}${it.file_url || it.thumbnail_url}`,
+      // Always return network-accessible URLs (replace localhost with real IP)
+      downloadUrl: (() => {
+        const raw = it.file_url || it.thumbnail_url || '';
+        if (raw.startsWith('http')) {
+          return raw.replace(/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, networkHost);
+        }
+        return `${networkHost}${raw}`;
+      })(),
     }));
 
+    // QR: show if campaign is in DATE range (not restricted to time window)
+    // Find any campaign with QR that targets this screen and is within its date range
+    const [qrCampaignRows] = await pool.query(
+      `SELECT DISTINCT c.* FROM campaigns c
+       JOIN campaign_targets ct ON ct.campaign_id = c.id
+       LEFT JOIN screen_group_items sgi ON ct.target_type = 'group' AND sgi.group_id = ct.target_id
+       WHERE c.status IN ('Active', 'Scheduled')
+         AND c.start_date <= ? AND c.end_date >= ?
+         AND c.qr_url IS NOT NULL AND c.qr_url != ''
+         AND ((ct.target_type = 'screen' AND ct.target_id = ?) OR sgi.screen_id = ?)
+       ORDER BY FIELD(c.priority,'Urgent','High','Normal') ASC
+       LIMIT 1`,
+      [todayStr, todayStr, screenId, screenId]
+    );
+    const qrCampaign = qrCampaignRows[0] || null;
+
     let campaignQr = null;
-    if (activeCampaign?.qr_url && String(activeCampaign.qr_url).trim()) {
-      const qrText = String(activeCampaign.qr_url).trim();
+    if (qrCampaign?.qr_url && String(qrCampaign.qr_url).trim()) {
+      const qrText = String(qrCampaign.qr_url).trim();
       try {
         const dataUrl = await QRCode.toDataURL(qrText, {
           width: 240,
@@ -163,7 +189,7 @@ router.get('/:screenId/manifest', async (req, res) => {
         });
         campaignQr = {
           url: qrText,
-          label: (activeCampaign.qr_label && String(activeCampaign.qr_label).trim()) || 'Scan QR Code',
+          label: (qrCampaign.qr_label && String(qrCampaign.qr_label).trim()) || 'Scan QR Code',
           dataUrl,
         };
       } catch {
